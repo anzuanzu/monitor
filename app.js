@@ -17,6 +17,7 @@
   let records = [];
   let chart = null;
   let selectedImportFile = null;
+  let bulkMetricLoadedKey = '';
   let recoveryMode = false;
 
   const today = () => new Date().toISOString().slice(0, 10);
@@ -90,9 +91,12 @@
     $('refreshButton').addEventListener('click', loadDashboardData);
     $('applyFilterButton').addEventListener('click', loadDashboardData);
     $('openPeopleButton').addEventListener('click', openPeopleDirectory);
+    $('openBulkMetricButton').addEventListener('click', openBulkMetricEditor);
     $('openEntryButton').addEventListener('click', () => openEntry());
     $('entryForm').addEventListener('submit', saveEntry);
     $('peopleForm').addEventListener('submit', savePerson);
+    $('bulkMetricForm').addEventListener('submit', saveBulkMetricValues);
+    $('loadBulkMetricButton').addEventListener('click', loadBulkMetricValues);
     $('addProjectButton').addEventListener('click', () => addProjectField());
     $('importFile').addEventListener('change', handleLocalFile);
     $('aiExtractButton').addEventListener('click', extractWithGemini);
@@ -101,6 +105,7 @@
     $('chartMetric').addEventListener('change', renderChart);
     document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $('entryDialog').close()));
     document.querySelectorAll('[data-close-people-dialog]').forEach(button => button.addEventListener('click', () => $('peopleDialog').close()));
+    document.querySelectorAll('[data-close-bulk-dialog]').forEach(button => button.addEventListener('click', () => $('bulkMetricDialog').close()));
     $('projectFields').addEventListener('click', event => { if (event.target.closest('.remove-project')) event.target.closest('.project-row').remove(); });
     $('entrySalesperson').addEventListener('change', handleSalespersonChange);
     $('peopleBody').addEventListener('click', handlePeopleDirectoryAction);
@@ -369,6 +374,79 @@
     salespeople = (data || []).filter(person => person.is_active);
     populatePeopleSelects();
     refreshImportMetricOptions();
+  }
+
+  function populateBulkMetricNames() {
+    $('bulkMetricNameList').replaceChildren(...getCustomMetricNames().map(name => {
+      const option = document.createElement('option'); option.value = name; return option;
+    }));
+  }
+
+  async function openBulkMetricEditor() {
+    if (!isManager()) return;
+    if (!salespeople.length) return openPeopleDirectory();
+    $('bulkMetricForm').reset(); $('bulkMetricDate').value = today();
+    bulkMetricLoadedKey = '';
+    populateBulkMetricNames();
+    const existingNames = getCustomMetricNames();
+    $('bulkMetricName').value = existingNames[0] || '';
+    $('bulkMetricBody').innerHTML = '<tr><td colspan="3"><p class="empty-state">輸入指標名稱後載入全部業務</p></td></tr>';
+    setMessage('bulkMetricMessage');
+    $('bulkMetricDialog').showModal();
+    if (existingNames.length) await loadBulkMetricValues();
+  }
+
+  async function loadBulkMetricValues() {
+    if (!isManager()) return;
+    const viewDate = $('bulkMetricDate').value;
+    const metricName = $('bulkMetricName').value.trim();
+    if (!viewDate) return setMessage('bulkMetricMessage', '請選擇檢視日期。');
+    if (!metricName) return setMessage('bulkMetricMessage', '請選擇既有指標或輸入新的指標名稱。');
+    setMessage('bulkMetricMessage', '正在載入全部業務資料…', false);
+    const personIds = salespeople.map(person => person.id);
+    const { data, error } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate).in('salesperson_id', personIds);
+    if (error) return setMessage('bulkMetricMessage', `無法載入資料：${error.message}`);
+    const existingByPerson = new Map((data || []).map(row => [row.salesperson_id, row]));
+    $('bulkMetricBody').innerHTML = salespeople.map(person => `<tr><td class="name-cell">${escapeHtml(person.name)}</td><td>${escapeHtml(person.job_title || '—')}</td><td><textarea class="bulk-metric-value" data-person-id="${person.id}" rows="2" placeholder="輸入「${escapeHtml(metricName)}」資料">${escapeHtml(existingByPerson.get(person.id)?.projects?.[metricName] || '')}</textarea></td></tr>`).join('');
+    bulkMetricLoadedKey = `${viewDate}\u0000${metricName}`;
+    setMessage('bulkMetricMessage', `已載入 ${salespeople.length} 位業務人員，可直接同步編輯「${metricName}」。`, false);
+  }
+
+  async function saveBulkMetricValues(event) {
+    event.preventDefault(); if (!isManager()) return;
+    const viewDate = $('bulkMetricDate').value;
+    const metricName = $('bulkMetricName').value.trim();
+    const inputs = [...$('bulkMetricBody').querySelectorAll('.bulk-metric-value')];
+    if (!viewDate || !metricName) return setMessage('bulkMetricMessage', '請先選擇日期與指標名稱。');
+    if (!inputs.length) return setMessage('bulkMetricMessage', '請先載入全部業務資料。');
+    if (bulkMetricLoadedKey !== `${viewDate}\u0000${metricName}`) return setMessage('bulkMetricMessage', '日期或指標名稱已變更，請先重新載入全部業務。');
+    setMessage('bulkMetricMessage', '正在同步儲存…', false);
+    const personIds = inputs.map(input => input.dataset.personId);
+    const { data, error: loadError } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate).in('salesperson_id', personIds);
+    if (loadError) return setMessage('bulkMetricMessage', `無法讀取既有資料：${loadError.message}`);
+    const existingByPerson = new Map((data || []).map(row => [row.salesperson_id, row]));
+    const payloads = [];
+    inputs.forEach(input => {
+      const person = salespeople.find(item => item.id === input.dataset.personId);
+      if (!person) return;
+      const existing = existingByPerson.get(person.id);
+      const projects = { ...(existing?.projects || {}) };
+      const value = input.value.trim();
+      const previouslyHadMetric = Object.prototype.hasOwnProperty.call(projects, metricName);
+      if (value) projects[metricName] = value;
+      else delete projects[metricName];
+      if (!existing && !value) return;
+      if (existing && !previouslyHadMetric && !value) return;
+      const payload = { view_date: viewDate, salesperson_id: person.id, projects, updated_by: currentUser.id };
+      if (!existing) Object.assign(payload, { job_title: person.job_title || '', created_by: currentUser.id });
+      payloads.push(payload);
+    });
+    if (!payloads.length) return setMessage('bulkMetricMessage', '沒有需要儲存的資料。');
+    const { error } = await sb.from('performance_entries').upsert(payloads, { onConflict: 'view_date,salesperson_id' });
+    if (error) return setMessage('bulkMetricMessage', `同步儲存失敗：${error.message}`);
+    $('bulkMetricDialog').close();
+    await loadDashboardData();
+    window.alert(`已同步更新 ${payloads.length} 位業務人員的「${metricName}」。`);
   }
 
   function readProjects() {

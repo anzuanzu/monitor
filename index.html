@@ -72,6 +72,7 @@
         <div class="head-actions">
           <button id="refreshButton" class="secondary-btn">重新整理</button>
           <button id="openPeopleButton" class="secondary-btn manager-only">管理業務人員</button>
+          <button id="openBulkMetricButton" class="secondary-btn manager-only">批次編輯自訂指標</button>
           <button id="openEntryButton" class="primary-btn manager-only">新增追蹤紀錄 <span>＋</span></button>
         </div>
       </div>
@@ -167,6 +168,21 @@
       <div class="directory-list-head"><h3>目前名單</h3><span id="peopleCount" class="record-count">0 位</span></div>
       <div class="directory-list"><table><thead><tr><th>姓名</th><th>職級</th><th>狀態</th><th>操作</th></tr></thead><tbody id="peopleBody"></tbody></table></div>
       <div class="dialog-actions"><button type="button" class="text-btn" data-close-people-dialog>完成</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="bulkMetricDialog" class="entry-dialog bulk-metric-dialog">
+    <form id="bulkMetricForm" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">BULK METRIC EDITOR</p><h2>同步編輯所有業務</h2></div><button type="button" class="icon-btn" data-close-bulk-dialog aria-label="關閉">×</button></div>
+      <p class="directory-intro">選擇日期與自訂績效指標後，系統會列出全部啟用中的業務人員。可一次填寫、修改或清除每個人的資料，再同步儲存。</p>
+      <div class="bulk-metric-controls">
+        <label>檢視日期<input id="bulkMetricDate" type="date" required></label>
+        <label>自訂績效指標<input id="bulkMetricName" type="text" list="bulkMetricNameList" maxlength="80" autocomplete="off" placeholder="選擇既有指標或輸入新名稱" required><datalist id="bulkMetricNameList"></datalist></label>
+        <button id="loadBulkMetricButton" class="secondary-btn" type="button">載入全部業務</button>
+      </div>
+      <p id="bulkMetricMessage" class="form-message" aria-live="polite"></p>
+      <div class="table-wrap bulk-metric-table"><table><thead><tr><th>業務人員</th><th>職級</th><th>指標資料</th></tr></thead><tbody id="bulkMetricBody"><tr><td colspan="3"><p class="empty-state">請先選擇或輸入指標名稱</p></td></tr></tbody></table></div>
+      <div class="dialog-actions"><button type="button" class="text-btn" data-close-bulk-dialog>取消</button><button id="saveBulkMetricButton" class="primary-btn" type="submit">同步儲存全部資料</button></div>
     </form>
   </dialog>
 
