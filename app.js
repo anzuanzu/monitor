@@ -101,6 +101,7 @@
     $('passwordResetRequestForm').addEventListener('submit', requestPasswordReset);
     $('signOutButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', loadDashboardData);
+    $('toggleRecordsFocus').addEventListener('click', toggleRecordsFocus);
     $('applyFilterButton').addEventListener('click', applyFilters);
     $('clearFilterButton').addEventListener('click', clearFilters);
     $('recordSearch').addEventListener('input', renderDashboard);
@@ -127,6 +128,9 @@
     $('recordsHead').addEventListener('click', handleCustomMetricHeaderAction);
     $('entrySalesperson').addEventListener('change', handleSalespersonChange);
     $('peopleBody').addEventListener('click', handlePeopleDirectoryAction);
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && $('recordsPanel').classList.contains('is-focus-mode') && !document.querySelector('dialog[open]')) toggleRecordsFocus(false);
+    });
   }
 
   async function signIn(event) {
@@ -179,6 +183,7 @@
   async function signOut() {
     await sb.auth.signOut();
     currentUser = null; records = []; salespeople = [];
+    document.body.classList.remove('dashboard-active', 'records-focus-active');
     $('dashboardView').classList.add('hidden'); $('passwordResetView').classList.add('hidden'); $('authView').classList.remove('hidden');
   }
 
@@ -195,12 +200,23 @@
       await sb.auth.signOut(); return;
     }
     role = data.role;
+    document.body.classList.add('dashboard-active');
     $('authView').classList.add('hidden'); $('dashboardView').classList.remove('hidden');
     $('userEmail').textContent = user.email || '';
     $('roleBadge').textContent = role === 'manager' ? '管理者' : '檢視者';
     $('roleBadge').classList.toggle('manager', isManager());
     document.querySelectorAll('.manager-only').forEach(el => el.setAttribute('aria-hidden', String(!isManager())));
     await loadDashboardData();
+  }
+
+  function toggleRecordsFocus(force) {
+    const panel = $('recordsPanel');
+    const shouldFocus = typeof force === 'boolean' ? force : !panel.classList.contains('is-focus-mode');
+    panel.classList.toggle('is-focus-mode', shouldFocus);
+    document.body.classList.toggle('records-focus-active', shouldFocus);
+    $('toggleRecordsFocus').textContent = shouldFocus ? '退出全欄位模式' : '全欄位模式';
+    $('toggleRecordsFocus').setAttribute('aria-pressed', String(shouldFocus));
+    if (shouldFocus) panel.querySelector('.records-table-wrap')?.focus();
   }
 
   async function loadDashboardData() {
