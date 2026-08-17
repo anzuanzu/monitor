@@ -381,21 +381,51 @@
     if (Object.keys(projects).length) { $('projectFields').innerHTML = ''; Object.entries(projects).forEach(([name, value]) => addProjectField(name, value)); setMessage('importStatus', `辨識完成；已帶入預設欄位，並自動建立 ${Object.keys(projects).length} 個可編輯的自訂指標。`, false); }
   }
 
-  async function importCoverageBatch(items) {
+  const isProvided = value => value !== null && value !== undefined && String(value).trim() !== '';
+  const formatCoverage = value => {
+    const text = String(value).trim();
+    return /^\d+(?:\.\d+)?$/.test(text) ? `${text}%` : text;
+  };
+
+  async function importRecognizedRecords(items) {
     const viewDate = $('viewDate').value || today();
-    const matched = []; const unmatched = [];
-    (Array.isArray(items) ? items : []).forEach(item => {
-      const person = matchSalespersonName(item?.salespersonName);
-      const coverage = String(item?.coverageRate ?? '').trim();
-      if (person && coverage) matched.push({ view_date: viewDate, salesperson_id: person.id, job_title: person.job_title || '', coverage_rate: coverage.includes('%') ? coverage : `${coverage}%`, created_by: currentUser.id, updated_by: currentUser.id });
-      else if (hasText(item?.salespersonName)) unmatched.push(String(item.salespersonName).trim());
+    const recognized = (Array.isArray(items) ? items : []).map(item => ({ item, person: matchSalespersonName(item?.salespersonName) })).filter(({ item }) => item && typeof item === 'object');
+    const personIds = [...new Set(recognized.map(({ person }) => person?.id).filter(Boolean))];
+    if (!personIds.length) throw new Error('檔案中沒有可與業務人員名單比對的姓名。請先建立或確認人員名單。');
+
+    const { data: existingRows, error: existingError } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate).in('salesperson_id', personIds);
+    if (existingError) throw existingError;
+    const existingByPerson = new Map((existingRows || []).map(row => [row.salesperson_id, row]));
+    const payloads = []; const unmatched = []; const skipped = [];
+
+    recognized.forEach(({ item, person }) => {
+      if (!person) { if (hasText(item.salespersonName)) unmatched.push(String(item.salespersonName).trim()); return; }
+      const payload = { view_date: viewDate, salesperson_id: person.id, updated_by: currentUser.id };
+      let hasMetric = false;
+      if (isProvided(item.jobTitle)) payload.job_title = String(item.jobTitle).trim();
+      else if (!existingByPerson.has(person.id)) payload.job_title = person.job_title || '';
+      if (isProvided(item.validCalls)) { payload.valid_calls = Math.max(0, number(item.validCalls)); hasMetric = true; }
+      if (isProvided(item.validMeetings)) { payload.valid_meetings = Math.max(0, number(item.validMeetings)); hasMetric = true; }
+      const textFields = { abayProgress: 'abay_progress', svipUpgradeProgress: 'svip_progress', svipProgress: 'svip_progress', vipUpgradeProgress: 'vip_progress', vipProgress: 'vip_progress', hvipProgress: 'hvip_progress', callProgress: 'call_progress', coverageRate: 'coverage_rate' };
+      Object.entries(textFields).forEach(([sourceKey, column]) => {
+        if (!isProvided(item[sourceKey]) || (column in payload && sourceKey === 'svipProgress')) return;
+        payload[column] = column === 'coverage_rate' ? formatCoverage(item[sourceKey]) : String(item[sourceKey]).trim(); hasMetric = true;
+      });
+      const customMetrics = item.customMetrics && typeof item.customMetrics === 'object' && !Array.isArray(item.customMetrics) ? item.customMetrics : {};
+      if (Object.keys(customMetrics).length) {
+        payload.projects = { ...(existingByPerson.get(person.id)?.projects || {}), ...customMetrics }; hasMetric = true;
+      }
+      if (!hasMetric) { skipped.push(person.name); return; }
+      if (!existingByPerson.has(person.id)) payload.created_by = currentUser.id;
+      payloads.push(payload);
     });
-    if (!matched.length) throw new Error('未比對到可匯入的業務人員與覆蓋率。請先確認人員名單是否完整。');
-    const { error } = await sb.from('performance_entries').upsert(matched, { onConflict: 'view_date,salesperson_id' });
+
+    if (!payloads.length) throw new Error('已辨識人員姓名，但沒有可更新的指標數據。');
+    const { error } = await sb.from('performance_entries').upsert(payloads, { onConflict: 'view_date,salesperson_id' });
     if (error) throw error;
     await loadDashboardData();
-    const unmatchedText = unmatched.length ? `未比對：${[...new Set(unmatched)].join('、')}。` : '';
-    setMessage('importStatus', `已依 ${humanDate(viewDate)} 批次更新 ${matched.length} 位業務人員的覆蓋率。${unmatchedText}`, Boolean(unmatched.length));
+    const details = [unmatched.length ? `未比對：${[...new Set(unmatched)].join('、')}` : '', skipped.length ? `未提供指標：${[...new Set(skipped)].join('、')}` : ''].filter(Boolean).join('；');
+    return `已依 ${humanDate(viewDate)} 自動更新 ${payloads.length} 位業務人員的辨識數據。${details ? ` ${details}。` : ''}`;
   }
 
   async function handleLocalFile(event) {
@@ -424,9 +454,10 @@
       const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name, knownSalespeople: salespeople.map(person => ({ name: person.name, jobTitle: person.job_title || '' })) } });
       if (error) throw error;
       const result = data || {};
-      const batchCoverage = result.batchCoverage || result.record?.batchCoverage;
-      if (Array.isArray(batchCoverage) && batchCoverage.length) {
-        await importCoverageBatch(batchCoverage);
+      const recognizedRecords = result.records || result.record?.records || result.batchCoverage || result.record?.batchCoverage;
+      if (Array.isArray(recognizedRecords) && recognizedRecords.length) {
+        const message = await importRecognizedRecords(recognizedRecords);
+        $('entryDialog').close(); window.alert(message);
       } else {
         applyImportedValues(result.record || result); if (!Object.keys((result.record || result)?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
       }

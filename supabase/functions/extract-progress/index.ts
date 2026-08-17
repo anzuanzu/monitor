@@ -7,23 +7,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
 
-const buildPrompt = (knownSalespeople: Array<{ name?: string; jobTitle?: string }> = []) => `請從提供的業務績效圖片或檔案萃取「單一筆」紀錄。只回傳符合下列結構的 JSON，不要 markdown，也不要編造資料。
+const buildPrompt = (knownSalespeople: Array<{ name?: string; jobTitle?: string }> = []) => `請從提供的業務績效圖片或檔案萃取紀錄。先判斷檔案包含一位或多位業務人員，以及每個人實際提供了哪些指標；只回傳符合下列結構的 JSON，不要 markdown，也不要編造資料。
 {
-  "viewDate": "YYYY-MM-DD 或空字串",
-  "salespersonName": "文字或空字串",
-  "jobTitle": "文字或空字串",
-  "validCalls": "有效電訪數字；找不到填 0",
-  "validMeetings": "有效面訪數字；找不到填 0",
-  "abayProgress": "完整文字紀錄或空字串",
-  "svipUpgradeProgress": "完整文字紀錄或空字串",
-  "vipUpgradeProgress": "完整文字紀錄或空字串",
-  "hvipProgress": "完整文字紀錄或空字串",
-  "callProgress": "完整文字紀錄或空字串",
-  "coverageRate": "完整文字紀錄或空字串",
-  "customMetrics": { "圖片／檔案中其他未列出的指標名稱": "其完整文字、數字或狀態紀錄" },
-  "batchCoverage": [{ "salespersonName": "完整姓名", "coverageRate": "百分比，例如 44%" }]
+  "records": [{
+    "salespersonName": "完整姓名或空字串",
+    "jobTitle": "文字或空字串",
+    "validCalls": "有效電訪數字；欄位不存在時填 null",
+    "validMeetings": "有效面訪數字；欄位不存在時填 null",
+    "abayProgress": "亞灣完整文字紀錄；不存在時填空字串",
+    "svipUpgradeProgress": "SVIP 升等完整文字紀錄；不存在時填空字串",
+    "vipUpgradeProgress": "VIP 升等完整文字紀錄；不存在時填空字串",
+    "hvipProgress": "HVIP 完整文字紀錄；不存在時填空字串",
+    "callProgress": "電訪完整文字紀錄；不存在時填空字串",
+    "coverageRate": "覆蓋率，例如 44%；不存在時填空字串",
+    "customMetrics": { "其他欄位名稱": "該人員的完整文字、數字或狀態紀錄" }
+  }]
 }
-所有「進度」都必須保留為可讀的文字紀錄，不要轉成百分比。customMetrics 只保留實際出現的額外指標；找不到時回傳空物件。若圖片或檔案是一張「多人名單＋覆蓋率」表格（例如近三個月聯繫累計覆蓋率），請將每位人員與其覆蓋率都放入 batchCoverage，並保留百分比符號；這時單筆的 coverageRate 可留空。不是多人覆蓋率表格時，batchCoverage 回傳空陣列。
+每一列人員都要建立一個 records 項目。所有「進度」都必須保留為可讀的文字紀錄，不要轉成百分比；但覆蓋率請保留百分比。customMetrics 只保留檔案中實際出現、且不是上述預設欄位的指標；找不到時回傳空物件。若圖片是多人覆蓋率表格，records 應包含每一位人員及其 coverageRate。
 已建立的業務人員名單如下：${JSON.stringify(knownSalespeople.map(person => ({ name: String(person.name || '').trim(), jobTitle: String(person.jobTitle || '').trim() })).filter(person => person.name))}
 從圖片或檔案辨識到業務人員時，請優先比對上述名單，並在 salespersonName 回傳名單中的完整姓名；若沒有可信的相符人員，才回傳空字串。`;
 
