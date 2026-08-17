@@ -71,6 +71,7 @@
         </div>
         <div class="head-actions">
           <button id="refreshButton" class="secondary-btn">重新整理</button>
+          <button id="openPeopleButton" class="secondary-btn manager-only">管理業務人員</button>
           <button id="openEntryButton" class="primary-btn manager-only">新增追蹤紀錄 <span>＋</span></button>
         </div>
       </div>
@@ -149,6 +150,19 @@
       </section>
       <div class="dialog-actions"><button type="button" class="text-btn" data-close-dialog>取消</button><button id="saveEntryButton" class="primary-btn" type="submit">儲存雲端紀錄</button></div>
       <p id="entryMessage" class="form-message" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <dialog id="peopleDialog" class="entry-dialog people-dialog">
+    <form id="peopleForm" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">TEAM DIRECTORY</p><h2>業務人員名單</h2></div><button type="button" class="icon-btn" data-close-people-dialog aria-label="關閉">×</button></div>
+      <p class="directory-intro">先建立團隊名單後，新增追蹤紀錄時即可直接選取業務人員。停用人員不會再出現在新增紀錄的選單中，但既有歷史紀錄會保留。</p>
+      <input id="personId" type="hidden">
+      <div class="person-form-grid"><label>業務人員姓名<input id="personName" type="text" autocomplete="off" placeholder="例：王小明" required></label><label>職級<input id="personJobTitle" type="text" autocomplete="off" placeholder="例：理財專員"></label><button id="savePersonButton" class="primary-btn" type="submit">加入名單</button></div>
+      <p id="peopleMessage" class="form-message" aria-live="polite"></p>
+      <div class="directory-list-head"><h3>目前名單</h3><span id="peopleCount" class="record-count">0 位</span></div>
+      <div class="directory-list"><table><thead><tr><th>姓名</th><th>職級</th><th>狀態</th><th>操作</th></tr></thead><tbody id="peopleBody"></tbody></table></div>
+      <div class="dialog-actions"><button type="button" class="text-btn" data-close-people-dialog>完成</button></div>
     </form>
   </dialog>
 

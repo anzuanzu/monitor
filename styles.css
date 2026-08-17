@@ -9,3 +9,7 @@ textarea:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(18,119,108,.12
 table{min-width:1320px}th,td{vertical-align:top;white-space:normal}.name-cell{white-space:nowrap}.note-cell{min-width:150px;max-width:240px;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:#40514d}
 .entry-dialog{width:min(1040px,calc(100vw - 32px))}.project-row{grid-template-columns:minmax(160px,.7fr) minmax(260px,1.3fr) 32px;align-items:start}.project-row textarea{min-height:54px}
 @media(max-width:620px){.project-row{grid-template-columns:1fr 32px}.project-row textarea{grid-column:1}.project-row .remove-project{grid-column:2;grid-row:1}}
+
+/* 業務人員名單 */
+.people-dialog{width:min(850px,calc(100vw - 32px))}.directory-intro{margin:0 0 18px;color:var(--muted);line-height:1.65}.person-form-grid{display:grid;grid-template-columns:1.1fr 1fr auto;align-items:end;gap:12px}.person-form-grid label{display:grid;gap:7px;color:#394845;font-weight:600;font-size:12px}.directory-list-head{display:flex;justify-content:space-between;align-items:center;margin-top:28px;margin-bottom:10px}.directory-list-head h3{margin:0;font-size:15px}.directory-list{border:1px solid var(--line);border-radius:12px;overflow:auto}.directory-list table{min-width:600px}.status-pill{display:inline-block;border-radius:99px;padding:4px 8px;background:#f1f3f1;color:#6d7b78;font-size:11px;font-weight:700}.status-pill.active{background:var(--teal-soft);color:var(--teal)}
+@media(max-width:620px){.person-form-grid{grid-template-columns:1fr}.person-form-grid button{width:100%}}

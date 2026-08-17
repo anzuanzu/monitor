@@ -88,16 +88,20 @@
     $('signOutButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', loadDashboardData);
     $('applyFilterButton').addEventListener('click', loadDashboardData);
+    $('openPeopleButton').addEventListener('click', openPeopleDirectory);
     $('openEntryButton').addEventListener('click', () => openEntry());
     $('entryForm').addEventListener('submit', saveEntry);
+    $('peopleForm').addEventListener('submit', savePerson);
     $('addProjectButton').addEventListener('click', () => addProjectField());
     $('importFile').addEventListener('change', handleLocalFile);
     $('aiExtractButton').addEventListener('click', extractWithGemini);
     $('chartDimension').addEventListener('change', renderChart);
     $('chartMetric').addEventListener('change', renderChart);
     document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $('entryDialog').close()));
+    document.querySelectorAll('[data-close-people-dialog]').forEach(button => button.addEventListener('click', () => $('peopleDialog').close()));
     $('projectFields').addEventListener('click', event => { if (event.target.closest('.remove-project')) event.target.closest('.project-row').remove(); });
     $('entrySalesperson').addEventListener('change', handleSalespersonChange);
+    $('peopleBody').addEventListener('click', handlePeopleDirectoryAction);
   }
 
   async function signIn(event) {
@@ -194,7 +198,7 @@
     const personOptions = salespeople.map(person => `<option value="${person.id}">${escapeHtml(person.name)}</option>`).join('');
     $('salespersonFilter').innerHTML = `<option value="">全部業務人員</option>${personOptions}`;
     $('salespersonFilter').value = current;
-    $('entrySalesperson').innerHTML = `${personOptions}<option value="__new__">＋ 新增業務人員</option>`;
+    $('entrySalesperson').innerHTML = personOptions || '<option value="">請先建立業務人員名單</option>';
   }
 
   function renderDashboard() {
@@ -247,6 +251,7 @@
 
   function openEntry(row = null) {
     if (!isManager()) return;
+    if (!row && !salespeople.length) return openPeopleDirectory();
     $('entryForm').reset(); $('projectFields').innerHTML = ''; setMessage('entryMessage'); setMessage('importStatus'); selectedImportFile = null;
     $('entryDialogTitle').textContent = row ? '編輯追蹤紀錄' : '新增追蹤紀錄'; $('entryId').value = row?.id || '';
     $('viewDate').value = row?.view_date || today();
@@ -261,16 +266,61 @@
   }
 
   async function handleSalespersonChange() {
-    if ($('entrySalesperson').value !== '__new__') {
-      const person = salespeople.find(item => item.id === $('entrySalesperson').value); if (person) $('entryTitle').value = person.job_title || '';
+    const person = salespeople.find(item => item.id === $('entrySalesperson').value);
+    if (person) $('entryTitle').value = person.job_title || '';
+  }
+
+  async function openPeopleDirectory() {
+    if (!isManager()) return;
+    setMessage('peopleMessage'); resetPersonForm();
+    const { data, error } = await sb.from('salespeople').select('*').order('is_active', { ascending: false }).order('name');
+    if (error) return setMessage('peopleMessage', error.message);
+    renderPeopleDirectory(data || []);
+    $('peopleDialog').showModal();
+  }
+
+  function resetPersonForm() {
+    $('peopleForm').reset(); $('personId').value = ''; $('savePersonButton').textContent = '加入名單';
+  }
+
+  function renderPeopleDirectory(people) {
+    $('peopleCount').textContent = `${people.filter(person => person.is_active).length} 位啟用`;
+    $('peopleBody').innerHTML = people.length ? people.map(person => `<tr><td class="name-cell">${escapeHtml(person.name)}</td><td>${escapeHtml(person.job_title || '—')}</td><td><span class="status-pill ${person.is_active ? 'active' : ''}">${person.is_active ? '啟用中' : '已停用'}</span></td><td><div class="row-actions"><button class="mini-btn" type="button" data-person-edit="${person.id}">編輯</button><button class="mini-btn ${person.is_active ? 'danger' : ''}" type="button" data-person-toggle="${person.id}" data-person-active="${person.is_active}">${person.is_active ? '停用' : '重新啟用'}</button></div></td></tr>`).join('') : '<tr><td colspan="4"><p class="empty-state">尚未建立業務人員名單</p></td></tr>';
+  }
+
+  async function handlePeopleDirectoryAction(event) {
+    const edit = event.target.closest('[data-person-edit]'); const toggle = event.target.closest('[data-person-toggle]');
+    if (edit) {
+      const { data, error } = await sb.from('salespeople').select('*').eq('id', edit.dataset.personEdit).single();
+      if (error) return setMessage('peopleMessage', error.message);
+      $('personId').value = data.id; $('personName').value = data.name; $('personJobTitle').value = data.job_title || ''; $('savePersonButton').textContent = '儲存變更'; $('personName').focus();
       return;
     }
-    const name = window.prompt('輸入新業務人員姓名');
-    if (!name?.trim()) { $('entrySalesperson').value = salespeople[0]?.id || ''; return; }
-    const jobTitle = window.prompt('輸入職級（可留白）') || '';
-    const { data, error } = await sb.from('salespeople').insert({ name: name.trim(), job_title: jobTitle.trim() }).select().single();
-    if (error) return setMessage('entryMessage', error.message);
-    salespeople.push(data); populatePeopleSelects(); $('entrySalesperson').value = data.id; $('entryTitle').value = data.job_title || '';
+    if (toggle) {
+      const active = toggle.dataset.personActive === 'true';
+      if (!window.confirm(active ? '確定要停用這位人員嗎？既有紀錄將保留。' : '確定要重新啟用這位人員嗎？')) return;
+      const { error } = await sb.from('salespeople').update({ is_active: !active }).eq('id', toggle.dataset.personToggle);
+      if (error) return setMessage('peopleMessage', error.message);
+      await reloadPeopleDirectory();
+    }
+  }
+
+  async function savePerson(event) {
+    event.preventDefault(); if (!isManager()) return;
+    const id = $('personId').value; const payload = { name: $('personName').value.trim(), job_title: $('personJobTitle').value.trim() };
+    if (!payload.name) return setMessage('peopleMessage', '請輸入業務人員姓名。');
+    const response = id ? await sb.from('salespeople').update(payload).eq('id', id) : await sb.from('salespeople').insert(payload);
+    if (response.error) return setMessage('peopleMessage', response.error.message);
+    resetPersonForm(); setMessage('peopleMessage', id ? '人員資料已更新。' : '已加入業務人員名單。', false);
+    await reloadPeopleDirectory(); await loadDashboardData();
+  }
+
+  async function reloadPeopleDirectory() {
+    const { data, error } = await sb.from('salespeople').select('*').order('is_active', { ascending: false }).order('name');
+    if (error) return setMessage('peopleMessage', error.message);
+    renderPeopleDirectory(data || []);
+    salespeople = (data || []).filter(person => person.is_active);
+    populatePeopleSelects();
   }
 
   function readProjects() {
