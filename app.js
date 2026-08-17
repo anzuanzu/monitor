@@ -21,6 +21,8 @@
   let recoveryMode = false;
   let toastTimer = null;
   let dashboardLoadId = 0;
+  let columnOrder = [];
+  let draggedColumnId = null;
 
   const today = () => new Date().toISOString().slice(0, 10);
   const number = value => Number(value || 0);
@@ -102,6 +104,7 @@
     $('signOutButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', loadDashboardData);
     $('toggleRecordsFocus').addEventListener('click', toggleRecordsFocus);
+    $('resetColumnOrder').addEventListener('click', resetColumnOrder);
     $('applyFilterButton').addEventListener('click', applyFilters);
     $('clearFilterButton').addEventListener('click', clearFilters);
     $('recordSearch').addEventListener('input', renderDashboard);
@@ -126,6 +129,10 @@
     document.querySelectorAll('[data-close-bulk-dialog]').forEach(button => button.addEventListener('click', () => $('bulkMetricDialog').close()));
     $('projectFields').addEventListener('click', event => { if (event.target.closest('.remove-project')) event.target.closest('.project-row').remove(); });
     $('recordsHead').addEventListener('click', handleCustomMetricHeaderAction);
+    $('recordsHead').addEventListener('dragstart', handleColumnDragStart);
+    $('recordsHead').addEventListener('dragover', handleColumnDragOver);
+    $('recordsHead').addEventListener('drop', handleColumnDrop);
+    $('recordsHead').addEventListener('dragend', clearColumnDragState);
     $('entrySalesperson').addEventListener('change', handleSalespersonChange);
     $('peopleBody').addEventListener('click', handlePeopleDirectoryAction);
     document.addEventListener('keydown', event => {
@@ -183,6 +190,7 @@
   async function signOut() {
     await sb.auth.signOut();
     currentUser = null; records = []; salespeople = [];
+    columnOrder = [];
     document.body.classList.remove('dashboard-active', 'records-focus-active');
     $('dashboardView').classList.add('hidden'); $('passwordResetView').classList.add('hidden'); $('authView').classList.remove('hidden');
   }
@@ -190,6 +198,7 @@
   async function startDashboard(user) {
     if (recoveryMode) return;
     currentUser = user;
+    columnOrder = [];
     const { data, error } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
     if (error) {
       setMessage('authMessage', `暫時無法連線至雲端資料庫，請稍候重新登入。${error.message}`);
@@ -335,12 +344,103 @@
 
   function renderRecords() {
     const visibleRecords = getVisibleRecords();
-    const noteCell = value => `<td class="note-cell">${hasText(value) ? escapeHtml(value) : '—'}</td>`;
-    const customMetricNames = getCustomMetricNames();
-    $('recordsHead').innerHTML = `<th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣進度紀錄</th><th>SVIP 升等進度</th><th>VIP 升等進度</th><th>HVIP 進度</th><th>電訪進度</th><th>覆蓋率紀錄</th>${customMetricNames.map(name => `<th class="custom-metric-head"><div class="custom-metric-title"><span>${escapeHtml(name)}</span><span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}"><button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(name)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(name)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(name)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(name)}">×</button></span></div></th>`).join('')}<th class="manager-only" aria-hidden="${!isManager()}">操作</th>`;
-    $('recordsBody').innerHTML = visibleRecords.length ? visibleRecords.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td>${noteCell(row.abay_progress)}${noteCell(row.svip_progress)}${noteCell(row.vip_progress)}${noteCell(row.hvip_progress)}${noteCell(row.call_progress)}${noteCell(row.coverage_rate)}${customMetricNames.map(name => noteCell(row.projects?.[name])).join('')}<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : `<tr><td colspan="${12 + customMetricNames.length}"><p class="empty-state">沒有符合目前條件的紀錄</p></td></tr>`;
+    const columns = getOrderedColumns();
+    $('recordsHead').innerHTML = columns.map(renderColumnHeader).join('');
+    $('recordsBody').innerHTML = visibleRecords.length ? visibleRecords.map(row => `<tr>${columns.map(column => column.render(row)).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}"><p class="empty-state">沒有符合目前條件的紀錄</p></td></tr>`;
     $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(visibleRecords.find(row => row.id === button.dataset.edit))));
     $('recordsBody').querySelectorAll('[data-delete]').forEach(button => button.addEventListener('click', () => deleteEntry(button.dataset.delete)));
+  }
+
+  function getColumnDefinitions() {
+    const noteCell = value => `<td class="note-cell">${hasText(value) ? escapeHtml(value) : '—'}</td>`;
+    const columns = [
+      { id: 'view_date', label: '檢視日期', widthClass: 'column-date', render: row => `<td>${humanDate(row.view_date)}</td>` },
+      { id: 'salesperson', label: '業務人員', widthClass: 'column-person', render: row => `<td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td>` },
+      { id: 'job_title', label: '職級', widthClass: 'column-title', render: row => `<td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td>` },
+      { id: 'valid_calls', label: '有效電訪', widthClass: 'column-number', render: row => `<td>${number(row.valid_calls)}</td>` },
+      { id: 'valid_meetings', label: '有效面訪', widthClass: 'column-number', render: row => `<td>${number(row.valid_meetings)}</td>` },
+      { id: 'abay_progress', label: '亞灣進度紀錄', widthClass: 'column-note', render: row => noteCell(row.abay_progress) },
+      { id: 'svip_progress', label: 'SVIP 升等進度', widthClass: 'column-note', render: row => noteCell(row.svip_progress) },
+      { id: 'vip_progress', label: 'VIP 升等進度', widthClass: 'column-note', render: row => noteCell(row.vip_progress) },
+      { id: 'hvip_progress', label: 'HVIP 進度', widthClass: 'column-note', render: row => noteCell(row.hvip_progress) },
+      { id: 'call_progress', label: '電訪進度', widthClass: 'column-note', render: row => noteCell(row.call_progress) },
+      { id: 'coverage_rate', label: '覆蓋率紀錄', widthClass: 'column-note', render: row => noteCell(row.coverage_rate) }
+    ];
+    getCustomMetricNames().forEach(name => columns.push({ id: `custom:${name}`, label: name, widthClass: 'column-note', custom: true, render: row => noteCell(row.projects?.[name]) }));
+    columns.push({ id: 'actions', label: '操作', widthClass: 'column-actions', managerOnly: true, render: row => `<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td>` });
+    return columns;
+  }
+
+  function getColumnOrderStorageKey() {
+    return currentUser ? `monitor.column-order.${currentUser.id}` : 'monitor.column-order';
+  }
+
+  function getOrderedColumns() {
+    const columns = getColumnDefinitions();
+    const ids = columns.map(column => column.id);
+    if (!columnOrder.length) {
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(getColumnOrderStorageKey()) || '[]');
+        if (Array.isArray(saved)) columnOrder = saved.filter(id => ids.includes(id));
+      } catch { columnOrder = []; }
+    }
+    const orderedIds = [...columnOrder, ...ids.filter(id => !columnOrder.includes(id))];
+    columnOrder = orderedIds;
+    return orderedIds.map(id => columns.find(column => column.id === id)).filter(Boolean);
+  }
+
+  function renderColumnHeader(column) {
+    const customActions = column.custom ? `<span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}"><button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(column.label)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(column.label)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(column.label)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(column.label)}">×</button></span>` : '';
+    return `<th class="${column.custom ? 'custom-metric-head ' : ''}${column.managerOnly ? 'manager-only ' : ''}${column.widthClass || ''} reorderable-column" data-column-id="${escapeHtml(column.id)}" draggable="true" title="拖曳可調整欄位順序" aria-hidden="${column.managerOnly ? String(!isManager()) : 'false'}"><div class="column-header-content"><span class="column-drag-handle" aria-hidden="true">⋮⋮</span><span>${escapeHtml(column.label)}</span>${customActions}</div></th>`;
+  }
+
+  function handleColumnDragStart(event) {
+    const header = event.target.closest('[data-column-id]');
+    if (!header) return;
+    draggedColumnId = header.dataset.columnId;
+    header.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', draggedColumnId);
+  }
+
+  function handleColumnDragOver(event) {
+    const header = event.target.closest('[data-column-id]');
+    if (!header || !draggedColumnId || header.dataset.columnId === draggedColumnId) return;
+    event.preventDefault();
+    $('recordsHead').querySelectorAll('.is-drop-target').forEach(item => item.classList.remove('is-drop-target'));
+    header.classList.add('is-drop-target');
+    event.dataTransfer.dropEffect = 'move';
+  }
+
+  function handleColumnDrop(event) {
+    const header = event.target.closest('[data-column-id]');
+    if (!header || !draggedColumnId) return;
+    event.preventDefault();
+    const targetId = header.dataset.columnId;
+    if (targetId !== draggedColumnId) {
+      const current = getOrderedColumns().map(column => column.id);
+      const from = current.indexOf(draggedColumnId); const to = current.indexOf(targetId);
+      if (from >= 0 && to >= 0) {
+        current.splice(from, 1); current.splice(to, 0, draggedColumnId);
+        columnOrder = current;
+        try { window.localStorage.setItem(getColumnOrderStorageKey(), JSON.stringify(columnOrder)); } catch { /* browser storage may be disabled */ }
+        renderRecords();
+        showToast('欄位順序已更新。');
+      }
+    }
+    clearColumnDragState();
+  }
+
+  function clearColumnDragState() {
+    draggedColumnId = null;
+    $('recordsHead').querySelectorAll('.is-dragging,.is-drop-target').forEach(item => item.classList.remove('is-dragging', 'is-drop-target'));
+  }
+
+  function resetColumnOrder() {
+    columnOrder = [];
+    try { window.localStorage.removeItem(getColumnOrderStorageKey()); } catch { /* browser storage may be disabled */ }
+    renderRecords();
+    showToast('已還原預設欄位順序。');
   }
 
   function addProjectField(name = '', value = '') {
