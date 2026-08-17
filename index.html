@@ -26,6 +26,12 @@
           <label>密碼<input id="passwordInput" type="password" autocomplete="current-password" placeholder="輸入密碼" required></label>
           <button class="primary-btn" type="submit">登入儀表板 <span>→</span></button>
         </form>
+        <button id="openPasswordResetRequest" class="text-btn auth-reset-link" type="button">設定初始密碼／忘記密碼</button>
+        <form id="passwordResetRequestForm" class="auth-form hidden" novalidate>
+          <label>電子郵件<input id="resetEmailInput" type="email" autocomplete="email" placeholder="輸入帳號電子郵件" required></label>
+          <div class="auth-form-actions"><button id="cancelPasswordResetRequest" class="text-btn" type="button">取消</button><button class="secondary-btn" type="submit">寄送設定密碼連結</button></div>
+        </form>
+        <p id="passwordResetRequestMessage" class="form-message" aria-live="polite"></p>
         <p id="authMessage" class="form-message" aria-live="polite"></p>
       </div>
       <p class="auth-footnote">帳號由系統管理者建立與管理</p>

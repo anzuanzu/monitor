@@ -36,6 +36,10 @@
     return /(?:[?#&]type=recovery(?:&|$))/.test(window.location.href);
   }
 
+  function hasAuthorizationCode() {
+    return new URLSearchParams(window.location.search).has('code');
+  }
+
   function showPasswordReset() {
     recoveryMode = true;
     $('authView').classList.add('hidden');
@@ -63,6 +67,12 @@
       if (event === 'PASSWORD_RECOVERY') showPasswordReset();
     });
     const { data: { session } } = await sb.auth.getSession();
+    if (hasAuthorizationCode()) {
+      const code = new URLSearchParams(window.location.search).get('code');
+      const { error } = await sb.auth.exchangeCodeForSession(code);
+      if (error) return setMessage('authMessage', '密碼設定連結已失效，請重新申請。');
+      return showPasswordReset();
+    }
     if (isRecoveryLink()) return showPasswordReset();
     if (session) await startDashboard(session.user);
   }
@@ -70,6 +80,9 @@
   function bindEvents() {
     $('signInForm').addEventListener('submit', signIn);
     $('passwordResetForm').addEventListener('submit', setNewPassword);
+    $('openPasswordResetRequest').addEventListener('click', openPasswordResetRequest);
+    $('cancelPasswordResetRequest').addEventListener('click', closePasswordResetRequest);
+    $('passwordResetRequestForm').addEventListener('submit', requestPasswordReset);
     $('signOutButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', loadDashboardData);
     $('applyFilterButton').addEventListener('click', loadDashboardData);
@@ -93,6 +106,29 @@
     await startDashboard(user);
   }
 
+  function openPasswordResetRequest() {
+    $('passwordResetRequestForm').classList.remove('hidden');
+    $('openPasswordResetRequest').classList.add('hidden');
+    $('resetEmailInput').value = $('emailInput').value.trim();
+    setMessage('passwordResetRequestMessage');
+    $('resetEmailInput').focus();
+  }
+
+  function closePasswordResetRequest() {
+    $('passwordResetRequestForm').classList.add('hidden');
+    $('openPasswordResetRequest').classList.remove('hidden');
+    setMessage('passwordResetRequestMessage');
+  }
+
+  async function requestPasswordReset(event) {
+    event.preventDefault();
+    const email = $('resetEmailInput').value.trim();
+    if (!email) return setMessage('passwordResetRequestMessage', '請輸入電子郵件。');
+    const { error } = await sb.auth.resetPasswordForEmail(email);
+    if (error) return setMessage('passwordResetRequestMessage', `無法寄送連結：${error.message}`);
+    setMessage('passwordResetRequestMessage', '若帳號存在，設定密碼連結已寄出。請查看收件匣與垃圾郵件。', false);
+  }
+
   async function setNewPassword(event) {
     event.preventDefault();
     const password = $('newPasswordInput').value;
@@ -103,7 +139,7 @@
     const { data, error } = await sb.auth.updateUser({ password });
     if (error) return setMessage('passwordResetMessage', `無法設定密碼：${error.message}`);
     $('passwordResetForm').reset();
-    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search.replace(/([?&])type=recovery(&?)/, '$1').replace(/[?&]$/, '')}`);
+    window.history.replaceState({}, document.title, window.location.pathname);
     recoveryMode = false;
     setMessage('passwordResetMessage', '密碼設定完成，正在登入…', false);
     await startDashboard(data.user);
