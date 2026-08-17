@@ -155,7 +155,11 @@
     if (recoveryMode) return;
     currentUser = user;
     const { data, error } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
-    if (error || !data) {
+    if (error) {
+      setMessage('authMessage', `暫時無法連線至雲端資料庫，請稍候重新登入。${error.message}`);
+      return;
+    }
+    if (!data) {
       setMessage('authMessage', '此帳號尚未由管理者授權。請聯絡系統管理者。');
       await sb.auth.signOut(); return;
     }
