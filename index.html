@@ -144,8 +144,12 @@
         <div id="projectFields" class="project-fields"></div>
       </section>
       <section class="ai-section">
-        <div><p class="eyebrow">GEMINI 3.5 FLASH-LITE</p><h3>從圖片或檔案帶入</h3><p>支援圖片、PDF、CSV、TXT、XLSX。確認後檔案才會傳至 Gemini，既有指標會自動帶入；其他指標會自動建立成可編輯的文字欄位。若檔案含多人覆蓋率表格，會依名單批次更新每位人員。</p></div>
-        <div class="ai-actions"><input id="importFile" type="file" accept=".xlsx,.csv,.txt,.pdf,image/*"><button id="aiExtractButton" class="secondary-btn" type="button">使用 Gemini 辨識</button></div>
+        <div><p class="eyebrow">GEMINI 3.5 FLASH-LITE</p><h3>從圖片或檔案帶入</h3><p>支援圖片、PDF、CSV、TXT、XLSX。可選擇讓 Gemini 自動判斷，或指定只帶入某一項績效指標；仍會先比對業務姓名，並一次更新檔案內所有相符人員。</p></div>
+        <div class="ai-actions">
+          <label class="import-target-label">帶入目標指標<select id="importMetric"><option value="auto">自動判斷檔案中的指標</option></select></label>
+          <label id="customImportMetricWrap" class="import-target-label hidden">新績效指標名稱<input id="customImportMetric" type="text" maxlength="80" placeholder="例：近三月聯繫覆蓋率"></label>
+          <input id="importFile" type="file" accept=".xlsx,.csv,.txt,.pdf,image/*"><button id="aiExtractButton" class="secondary-btn" type="button">使用 Gemini 辨識</button>
+        </div>
         <p id="importStatus" class="form-message"></p>
       </section>
       <div class="dialog-actions"><button type="button" class="text-btn" data-close-dialog>取消</button><button id="saveEntryButton" class="primary-btn" type="submit">儲存雲端紀錄</button></div>

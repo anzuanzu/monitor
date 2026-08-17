@@ -10,6 +10,7 @@
   };
   const numericMetricKeys = ['valid_calls', 'valid_meetings'];
   const noteMetricKeys = ['abay_progress', 'svip_progress', 'vip_progress', 'hvip_progress', 'call_progress', 'coverage_rate'];
+  const importMetricKeys = [...numericMetricKeys, ...noteMetricKeys];
   let currentUser = null;
   let role = 'viewer';
   let salespeople = [];
@@ -95,6 +96,7 @@
     $('addProjectButton').addEventListener('click', () => addProjectField());
     $('importFile').addEventListener('change', handleLocalFile);
     $('aiExtractButton').addEventListener('click', extractWithGemini);
+    $('importMetric').addEventListener('change', handleImportMetricChange);
     $('chartDimension').addEventListener('change', renderChart);
     $('chartMetric').addEventListener('change', renderChart);
     document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $('entryDialog').close()));
@@ -249,10 +251,49 @@
     $('projectFields').append(fragment);
   }
 
+  function getCustomMetricNames() {
+    return [...new Set(records.flatMap(row => Object.keys(row.projects || {})).map(name => String(name).trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  }
+
+  function refreshImportMetricOptions(selected = 'auto') {
+    const select = $('importMetric'); if (!select) return;
+    const previous = selected || select.value || 'auto';
+    select.replaceChildren(new Option('自動判斷檔案中的指標', 'auto'));
+    importMetricKeys.forEach(key => select.add(new Option(metricLabels[key], `standard:${key}`)));
+    getCustomMetricNames().forEach(name => select.add(new Option(name, `custom:${name}`)));
+    select.add(new Option('＋ 建立新的自訂績效指標', 'new'));
+    select.value = [...select.options].some(option => option.value === previous) ? previous : 'auto';
+    handleImportMetricChange();
+  }
+
+  function handleImportMetricChange() {
+    const isNew = $('importMetric').value === 'new';
+    $('customImportMetricWrap').classList.toggle('hidden', !isNew);
+    if (isNew) $('customImportMetric').focus();
+  }
+
+  function getImportTarget() {
+    const value = $('importMetric').value;
+    if (value === 'auto') return { mode: 'auto' };
+    if (value === 'new') {
+      const label = $('customImportMetric').value.trim();
+      if (!label) throw new Error('請輸入新的績效指標名稱。');
+      return { mode: 'custom', label };
+    }
+    if (value.startsWith('standard:')) {
+      const key = value.slice('standard:'.length);
+      return { mode: 'standard', key, label: metricLabels[key] || key };
+    }
+    if (value.startsWith('custom:')) return { mode: 'custom', label: value.slice('custom:'.length) };
+    return { mode: 'auto' };
+  }
+
   function openEntry(row = null) {
     if (!isManager()) return;
     if (!row && !salespeople.length) return openPeopleDirectory();
     $('entryForm').reset(); $('projectFields').innerHTML = ''; setMessage('entryMessage'); setMessage('importStatus'); selectedImportFile = null;
+    refreshImportMetricOptions('auto');
     $('entryDialogTitle').textContent = row ? '編輯追蹤紀錄' : '新增追蹤紀錄'; $('entryId').value = row?.id || '';
     $('viewDate').value = row?.view_date || today();
     $('entrySalesperson').value = row?.salesperson_id || salespeople[0]?.id || '';
@@ -321,6 +362,7 @@
     renderPeopleDirectory(data || []);
     salespeople = (data || []).filter(person => person.is_active);
     populatePeopleSelects();
+    refreshImportMetricOptions();
   }
 
   function readProjects() {
@@ -387,7 +429,7 @@
     return /^\d+(?:\.\d+)?$/.test(text) ? `${text}%` : text;
   };
 
-  async function importRecognizedRecords(items) {
+  async function importRecognizedRecords(items, importTarget = { mode: 'auto' }) {
     const viewDate = $('viewDate').value || today();
     const recognized = (Array.isArray(items) ? items : []).map(item => ({ item, person: matchSalespersonName(item?.salespersonName) })).filter(({ item }) => item && typeof item === 'object');
     const personIds = [...new Set(recognized.map(({ person }) => person?.id).filter(Boolean))];
@@ -404,15 +446,26 @@
       let hasMetric = false;
       if (isProvided(item.jobTitle)) payload.job_title = String(item.jobTitle).trim();
       else if (!existingByPerson.has(person.id)) payload.job_title = person.job_title || '';
-      if (isProvided(item.validCalls)) { payload.valid_calls = Math.max(0, number(item.validCalls)); hasMetric = true; }
-      if (isProvided(item.validMeetings)) { payload.valid_meetings = Math.max(0, number(item.validMeetings)); hasMetric = true; }
+      if (importTarget.mode !== 'auto' && isProvided(item.importValue)) {
+        if (importTarget.mode === 'standard') {
+          payload[importTarget.key] = importTarget.key === 'valid_calls' || importTarget.key === 'valid_meetings'
+            ? Math.max(0, number(item.importValue))
+            : importTarget.key === 'coverage_rate' ? formatCoverage(item.importValue) : String(item.importValue).trim();
+        } else {
+          payload.projects = { ...(existingByPerson.get(person.id)?.projects || {}), [importTarget.label]: String(item.importValue).trim() };
+        }
+        hasMetric = true;
+      } else if (importTarget.mode === 'auto') {
+        if (isProvided(item.validCalls)) { payload.valid_calls = Math.max(0, number(item.validCalls)); hasMetric = true; }
+        if (isProvided(item.validMeetings)) { payload.valid_meetings = Math.max(0, number(item.validMeetings)); hasMetric = true; }
+      }
       const textFields = { abayProgress: 'abay_progress', svipUpgradeProgress: 'svip_progress', svipProgress: 'svip_progress', vipUpgradeProgress: 'vip_progress', vipProgress: 'vip_progress', hvipProgress: 'hvip_progress', callProgress: 'call_progress', coverageRate: 'coverage_rate' };
-      Object.entries(textFields).forEach(([sourceKey, column]) => {
+      if (importTarget.mode === 'auto') Object.entries(textFields).forEach(([sourceKey, column]) => {
         if (!isProvided(item[sourceKey]) || (column in payload && sourceKey === 'svipProgress')) return;
         payload[column] = column === 'coverage_rate' ? formatCoverage(item[sourceKey]) : String(item[sourceKey]).trim(); hasMetric = true;
       });
       const customMetrics = item.customMetrics && typeof item.customMetrics === 'object' && !Array.isArray(item.customMetrics) ? item.customMetrics : {};
-      if (Object.keys(customMetrics).length) {
+      if (importTarget.mode === 'auto' && Object.keys(customMetrics).length) {
         payload.projects = { ...(existingByPerson.get(person.id)?.projects || {}), ...customMetrics }; hasMetric = true;
       }
       if (!hasMetric) { skipped.push(person.name); return; }
@@ -425,39 +478,32 @@
     if (error) throw error;
     await loadDashboardData();
     const details = [unmatched.length ? `未比對：${[...new Set(unmatched)].join('、')}` : '', skipped.length ? `未提供指標：${[...new Set(skipped)].join('、')}` : ''].filter(Boolean).join('；');
-    return `已依 ${humanDate(viewDate)} 自動更新 ${payloads.length} 位業務人員的辨識數據。${details ? ` ${details}。` : ''}`;
+    const targetNote = importTarget.mode === 'auto' ? '辨識數據' : `「${importTarget.label || metricLabels[importTarget.key]}」`;
+    return `已依 ${humanDate(viewDate)} 自動更新 ${payloads.length} 位業務人員的${targetNote}。${details ? ` ${details}。` : ''}`;
   }
 
   async function handleLocalFile(event) {
     selectedImportFile = event.target.files?.[0] || null; if (!selectedImportFile) return;
-    try {
-      if (/image\//.test(selectedImportFile.type) || /\.pdf$/i.test(selectedImportFile.name)) { setMessage('importStatus', `已選擇 ${/\.pdf$/i.test(selectedImportFile.name) ? 'PDF' : '圖片'}：${selectedImportFile.name}；點擊「使用 Gemini 辨識」後才會上傳辨識。`, false); return; }
-      let row = {};
-      if (/\.xlsx$/i.test(selectedImportFile.name)) {
-        const workbook = XLSX.read(await selectedImportFile.arrayBuffer(), { type: 'array' }); const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }); row = rows[0] || {};
-      } else {
-        const text = await selectedImportFile.text();
-        try { row = JSON.parse(text); } catch { const workbook = XLSX.read(text, { type: 'string' }); row = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' })[0] || {}; }
-      }
-      applyImportedValues(row); setMessage('importStatus', `已在本機讀取 ${selectedImportFile.name} 的第一筆資料並帶入表單。`, false);
-    } catch (error) { setMessage('importStatus', `無法讀取檔案：${error.message}`); }
+    const kind = /\.pdf$/i.test(selectedImportFile.name) ? 'PDF' : /image\//.test(selectedImportFile.type) ? '圖片' : '檔案';
+    setMessage('importStatus', `已選擇${kind}：${selectedImportFile.name}。點擊「使用 Gemini 辨識」後，會比對全部業務姓名並批次帶入。`, false);
   }
 
   async function extractWithGemini() {
     if (!selectedImportFile) return setMessage('importStatus', '請先選擇圖片或檔案。');
     if (!isManager()) return;
-    if (!window.confirm(`即將把「${selectedImportFile.name}」的內容傳送到 Google Gemini 進行辨識，僅用於帶入目前表單。是否繼續？`)) return;
     try {
+      const importTarget = getImportTarget();
+      const targetDescription = importTarget.mode === 'auto' ? '自動判斷相關指標' : `指定帶入「${importTarget.label}」`;
+      if (!window.confirm(`即將把「${selectedImportFile.name}」傳送到 Google Gemini 進行辨識，${targetDescription}，並批次更新所有姓名比對成功的人員。是否繼續？`)) return;
       const payload = await buildGeminiPayload(selectedImportFile);
       setMessage('importStatus', 'Gemini 正在辨識…', false);
-      const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name, knownSalespeople: salespeople.map(person => ({ name: person.name, jobTitle: person.job_title || '' })) } });
+      const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name, importTarget, knownSalespeople: salespeople.map(person => ({ name: person.name, jobTitle: person.job_title || '' })) } });
       if (error) throw error;
       const result = data || {};
       const candidateRecord = result.record || result;
       const recognizedRecords = result.records || result.record?.records || result.batchCoverage || result.record?.batchCoverage || (hasText(candidateRecord?.salespersonName) ? [candidateRecord] : null);
       if (Array.isArray(recognizedRecords) && recognizedRecords.length) {
-        const message = await importRecognizedRecords(recognizedRecords);
+        const message = await importRecognizedRecords(recognizedRecords, importTarget);
         $('entryDialog').close(); window.alert(message);
       } else {
         applyImportedValues(candidateRecord); if (!Object.keys(candidateRecord?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
