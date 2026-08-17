@@ -31,6 +31,22 @@
       <p class="auth-footnote">帳號由系統管理者建立與管理</p>
     </section>
 
+    <section id="passwordResetView" class="auth-view hidden" aria-labelledby="passwordResetTitle">
+      <div class="auth-brand"><span class="brand-mark">↗</span><span>軌跡</span></div>
+      <div class="auth-card">
+        <p class="eyebrow">SECURE ACCOUNT SETUP</p>
+        <h1 id="passwordResetTitle">設定新的<br><em>登入密碼。</em></h1>
+        <p>請為你的業務績效監控帳號設定密碼；完成後會直接帶你進入儀表板。</p>
+        <form id="passwordResetForm" class="auth-form">
+          <label>新密碼<input id="newPasswordInput" type="password" autocomplete="new-password" minlength="8" placeholder="至少 8 個字元" required></label>
+          <label>確認新密碼<input id="confirmPasswordInput" type="password" autocomplete="new-password" minlength="8" placeholder="再次輸入新密碼" required></label>
+          <button class="primary-btn" type="submit">儲存並登入 <span>→</span></button>
+        </form>
+        <p id="passwordResetMessage" class="form-message" aria-live="polite"></p>
+      </div>
+      <p class="auth-footnote">此頁僅能由有效的重設密碼連結開啟</p>
+    </section>
+
     <section id="dashboardView" class="dashboard hidden">
       <header class="topbar">
         <a class="brand" href="#"><span class="brand-mark">↗</span>軌跡 <small>業務績效監控</small></a>

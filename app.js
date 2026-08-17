@@ -14,6 +14,7 @@
   let records = [];
   let chart = null;
   let selectedImportFile = null;
+  let recoveryMode = false;
 
   const today = () => new Date().toISOString().slice(0, 10);
   const number = value => Number(value || 0);
@@ -31,6 +32,19 @@
     $('setupNotice').classList.remove('hidden');
   }
 
+  function isRecoveryLink() {
+    return /(?:[?#&]type=recovery(?:&|$))/.test(window.location.href);
+  }
+
+  function showPasswordReset() {
+    recoveryMode = true;
+    $('authView').classList.add('hidden');
+    $('dashboardView').classList.add('hidden');
+    $('passwordResetView').classList.remove('hidden');
+    setMessage('passwordResetMessage');
+    $('newPasswordInput').focus();
+  }
+
   function configureDateFilters() {
     const to = today(); const from = new Date(); from.setDate(from.getDate() - 29);
     $('toDate').value = to; $('fromDate').value = from.toISOString().slice(0, 10);
@@ -45,12 +59,17 @@
       $('signInForm').querySelectorAll('input,button').forEach(el => el.disabled = true);
       return;
     }
+    sb.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') showPasswordReset();
+    });
     const { data: { session } } = await sb.auth.getSession();
+    if (isRecoveryLink()) return showPasswordReset();
     if (session) await startDashboard(session.user);
   }
 
   function bindEvents() {
     $('signInForm').addEventListener('submit', signIn);
+    $('passwordResetForm').addEventListener('submit', setNewPassword);
     $('signOutButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', loadDashboardData);
     $('applyFilterButton').addEventListener('click', loadDashboardData);
@@ -74,13 +93,30 @@
     await startDashboard(user);
   }
 
+  async function setNewPassword(event) {
+    event.preventDefault();
+    const password = $('newPasswordInput').value;
+    const confirmation = $('confirmPasswordInput').value;
+    setMessage('passwordResetMessage');
+    if (password.length < 8) return setMessage('passwordResetMessage', '密碼至少需要 8 個字元。');
+    if (password !== confirmation) return setMessage('passwordResetMessage', '兩次輸入的密碼不一致。');
+    const { data, error } = await sb.auth.updateUser({ password });
+    if (error) return setMessage('passwordResetMessage', `無法設定密碼：${error.message}`);
+    $('passwordResetForm').reset();
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search.replace(/([?&])type=recovery(&?)/, '$1').replace(/[?&]$/, '')}`);
+    recoveryMode = false;
+    setMessage('passwordResetMessage', '密碼設定完成，正在登入…', false);
+    await startDashboard(data.user);
+  }
+
   async function signOut() {
     await sb.auth.signOut();
     currentUser = null; records = []; salespeople = [];
-    $('dashboardView').classList.add('hidden'); $('authView').classList.remove('hidden');
+    $('dashboardView').classList.add('hidden'); $('passwordResetView').classList.add('hidden'); $('authView').classList.remove('hidden');
   }
 
   async function startDashboard(user) {
+    if (recoveryMode) return;
     currentUser = user;
     const { data, error } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
     if (error || !data) {
