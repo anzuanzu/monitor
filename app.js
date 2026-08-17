@@ -4,10 +4,12 @@
   const sb = configured ? window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey) : null;
   const $ = id => document.getElementById(id);
   const metricLabels = {
-    valid_calls: '有效電訪', valid_meetings: '有效面訪', abay_progress: '亞灣進度',
-    svip_progress: 'SVIP 進度', vip_progress: 'VIP 升等進度', hvip_progress: 'HVIP 進度',
-    call_progress: '電訪進度', coverage_rate: '覆蓋率'
+    valid_calls: '有效電訪', valid_meetings: '有效面訪', abay_progress: '亞灣進度紀錄',
+    svip_progress: 'SVIP 升等進度', vip_progress: 'VIP 升等進度', hvip_progress: 'HVIP 進度',
+    call_progress: '電訪進度', coverage_rate: '覆蓋率紀錄'
   };
+  const numericMetricKeys = ['valid_calls', 'valid_meetings'];
+  const noteMetricKeys = ['abay_progress', 'svip_progress', 'vip_progress', 'hvip_progress', 'call_progress', 'coverage_rate'];
   let currentUser = null;
   let role = 'viewer';
   let salespeople = [];
@@ -18,7 +20,7 @@
 
   const today = () => new Date().toISOString().slice(0, 10);
   const number = value => Number(value || 0);
-  const percent = value => `${Math.round(number(value))}%`;
+  const hasText = value => String(value ?? '').trim().length > 0;
   const isManager = () => role === 'manager';
   const setMessage = (id, message = '', error = true) => {
     const el = $(id); if (!el) return;
@@ -198,9 +200,9 @@
   function renderDashboard() {
     const calls = records.reduce((sum, row) => sum + number(row.valid_calls), 0);
     const meetings = records.reduce((sum, row) => sum + number(row.valid_meetings), 0);
-    const coverageRows = records.filter(row => row.coverage_rate !== null && row.coverage_rate !== undefined);
+    const noteRows = records.filter(row => noteMetricKeys.some(key => hasText(row[key])) || Object.values(row.projects || {}).some(hasText));
     $('callsKpi').textContent = calls.toLocaleString(); $('meetingsKpi').textContent = meetings.toLocaleString();
-    $('coverageKpi').textContent = coverageRows.length ? percent(coverageRows.reduce((sum, row) => sum + number(row.coverage_rate), 0) / coverageRows.length) : '—';
+    $('coverageKpi').textContent = noteRows.length ? `${noteRows.length} 筆` : '—';
     $('peopleKpi').textContent = new Set(records.map(row => row.salesperson_id)).size.toLocaleString();
     $('dateRangeLabel').textContent = `${humanDate($('fromDate').value)} 至 ${humanDate($('toDate').value)}`;
     $('recordCount').textContent = `${records.length} 筆`;
@@ -208,7 +210,7 @@
   }
 
   function renderChart() {
-    const metric = $('chartMetric').value; const dimension = $('chartDimension').value;
+    const metric = numericMetricKeys.includes($('chartMetric').value) ? $('chartMetric').value : 'valid_calls'; const dimension = $('chartDimension').value;
     const groups = new Map();
     records.forEach(row => {
       const key = dimension === 'date' ? row.view_date : (row.salespeople?.name || '未指派');
@@ -218,21 +220,21 @@
     const labels = items.map(([key]) => dimension === 'date' ? key.slice(5).replace('-', '/') : key);
     const values = items.map(([, value]) => value.total);
     if (chart) chart.destroy();
-    chart = new Chart($('performanceChart'), { type: 'bar', data: { labels, datasets: [{ label: metricLabels[metric], data: values, backgroundColor: '#12776c', borderRadius: 6, maxBarThickness: 42 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: context => `${metricLabels[metric]}：${context.raw}${metric.includes('progress') || metric === 'coverage_rate' ? '%' : ''}` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#6d7b78' } }, y: { beginAtZero: true, grid: { color: '#edf1ee' }, ticks: { color: '#6d7b78' } } } } });
+    chart = new Chart($('performanceChart'), { type: 'bar', data: { labels, datasets: [{ label: metricLabels[metric], data: values, backgroundColor: '#12776c', borderRadius: 6, maxBarThickness: 42 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: context => `${metricLabels[metric]}：${context.raw}` } } }, scales: { x: { grid: { display: false }, ticks: { color: '#6d7b78' } }, y: { beginAtZero: true, grid: { color: '#edf1ee' }, ticks: { color: '#6d7b78', precision: 0 } } } } });
   }
 
   function renderProgressSummary() {
-    const keys = ['abay_progress', 'svip_progress', 'vip_progress', 'hvip_progress', 'call_progress', 'coverage_rate'];
     if (!records.length) { $('progressSummary').innerHTML = '<p class="empty-state">尚無資料</p>'; return; }
-    $('progressSummary').innerHTML = keys.map((key, index) => {
-      const average = records.reduce((sum, row) => sum + number(row[key]), 0) / records.length;
-      const colors = ['#12776c','#6c5bb6','#c76d25','#3269a8','#3269a8','#12776c'];
-      return `<div class="progress-item"><div class="progress-label"><span>${metricLabels[key]}</span><strong>${percent(average)}</strong></div><div class="progress-track"><i style="width:${Math.min(100, average)}%;background:${colors[index]}"></i></div></div>`;
-    }).join('');
+    const latestNotes = noteMetricKeys.map(key => {
+      const row = records.find(item => hasText(item[key]));
+      return row ? { key, value: row[key], row } : null;
+    }).filter(Boolean);
+    $('progressSummary').innerHTML = latestNotes.length ? latestNotes.map(({ key, value, row }) => `<div class="progress-item"><div class="progress-label"><span>${metricLabels[key]}</span><strong>${humanDate(row.view_date)} · ${escapeHtml(row.salespeople?.name || '未指派')}</strong></div><p class="progress-note">${escapeHtml(value)}</p></div>`).join('') : '<p class="empty-state">此區間尚無文字指標紀錄</p>';
   }
 
   function renderRecords() {
-    $('recordsBody').innerHTML = records.length ? records.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td><td><span class="metric-pill">${percent(row.abay_progress)}</span></td><td>${percent(row.svip_progress)} / ${percent(row.vip_progress)} / ${percent(row.hvip_progress)}</td><td>${percent(row.coverage_rate)}</td><td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : '<tr><td colspan="9"><p class="empty-state">此區間尚無紀錄</p></td></tr>';
+    const noteCell = value => `<td class="note-cell">${hasText(value) ? escapeHtml(value) : '—'}</td>`;
+    $('recordsBody').innerHTML = records.length ? records.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td>${noteCell(row.abay_progress)}${noteCell(row.svip_progress)}${noteCell(row.vip_progress)}${noteCell(row.hvip_progress)}${noteCell(row.call_progress)}${noteCell(row.coverage_rate)}<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : '<tr><td colspan="12"><p class="empty-state">此區間尚無紀錄</p></td></tr>';
     $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(records.find(row => row.id === button.dataset.edit))));
     $('recordsBody').querySelectorAll('[data-delete]').forEach(button => button.addEventListener('click', () => deleteEntry(button.dataset.delete)));
   }
@@ -250,8 +252,10 @@
     $('viewDate').value = row?.view_date || today();
     $('entrySalesperson').value = row?.salesperson_id || salespeople[0]?.id || '';
     $('entryTitle').value = row?.job_title || row?.salespeople?.job_title || '';
-    const fields = { validCalls: 'valid_calls', validMeetings: 'valid_meetings', abayProgress: 'abay_progress', svipProgress: 'svip_progress', vipProgress: 'vip_progress', hvipProgress: 'hvip_progress', callProgress: 'call_progress', coverageRate: 'coverage_rate' };
-    Object.entries(fields).forEach(([id, key]) => { $(id).value = row ? number(row[key]) : 0; });
+    const numberFields = { validCalls: 'valid_calls', validMeetings: 'valid_meetings' };
+    const noteFields = { abayProgress: 'abay_progress', svipProgress: 'svip_progress', vipProgress: 'vip_progress', hvipProgress: 'hvip_progress', callProgress: 'call_progress', coverageRate: 'coverage_rate' };
+    Object.entries(numberFields).forEach(([id, key]) => { $(id).value = row ? number(row[key]) : 0; });
+    Object.entries(noteFields).forEach(([id, key]) => { $(id).value = row?.[key] ?? ''; });
     Object.entries(row?.projects || {}).forEach(([name, value]) => addProjectField(name, value));
     $('entryDialog').showModal();
   }
@@ -271,14 +275,14 @@
 
   function readProjects() {
     return [...$('projectFields').querySelectorAll('.project-row')].reduce((all, row) => {
-      const name = row.querySelector('.project-name').value.trim(); const value = row.querySelector('.project-value').value;
-      if (name) all[name] = Math.max(0, Math.min(100, number(value))); return all;
+      const name = row.querySelector('.project-name').value.trim(); const value = row.querySelector('.project-value').value.trim();
+      if (name) all[name] = value; return all;
     }, {});
   }
 
   async function saveEntry(event) {
     event.preventDefault(); if (!isManager()) return;
-    const payload = { view_date: $('viewDate').value, salesperson_id: $('entrySalesperson').value, job_title: $('entryTitle').value.trim(), valid_calls: number($('validCalls').value), valid_meetings: number($('validMeetings').value), abay_progress: number($('abayProgress').value), svip_progress: number($('svipProgress').value), vip_progress: number($('vipProgress').value), hvip_progress: number($('hvipProgress').value), call_progress: number($('callProgress').value), coverage_rate: number($('coverageRate').value), projects: readProjects(), updated_by: currentUser.id };
+    const payload = { view_date: $('viewDate').value, salesperson_id: $('entrySalesperson').value, job_title: $('entryTitle').value.trim(), valid_calls: number($('validCalls').value), valid_meetings: number($('validMeetings').value), abay_progress: $('abayProgress').value.trim(), svip_progress: $('svipProgress').value.trim(), vip_progress: $('vipProgress').value.trim(), hvip_progress: $('hvipProgress').value.trim(), call_progress: $('callProgress').value.trim(), coverage_rate: $('coverageRate').value.trim(), projects: readProjects(), updated_by: currentUser.id };
     if (!payload.salesperson_id || payload.salesperson_id === '__new__') return setMessage('entryMessage', '請先選擇業務人員');
     const id = $('entryId').value;
     const response = id ? await sb.from('performance_entries').update(payload).eq('id', id) : await sb.from('performance_entries').insert({ ...payload, created_by: currentUser.id });
@@ -294,23 +298,24 @@
 
   function normalizeKey(key) { return String(key || '').replace(/[\s_（）()]/g, '').toLowerCase(); }
   function applyImportedValues(source) {
-    const aliases = { viewdate: 'viewDate', '檢視日期': 'viewDate', '日期': 'viewDate', '業務人員': 'salespersonName', '姓名': 'salespersonName', '職級': 'entryTitle', '有效電訪': 'validCalls', '有效電訪紀錄': 'validCalls', '有效面訪': 'validMeetings', '有效面訪紀錄': 'validMeetings', '亞灣進度': 'abayProgress', 'svip進度': 'svipProgress', 'vip升等進度': 'vipProgress', 'hvip進度': 'hvipProgress', '電訪進度': 'callProgress', '覆蓋率': 'coverageRate' };
+    const aliases = { viewdate: 'viewDate', '檢視日期': 'viewDate', '日期': 'viewDate', salespersonname: 'salespersonName', '業務人員': 'salespersonName', '姓名': 'salespersonName', jobtitle: 'entryTitle', '職級': 'entryTitle', validcalls: 'validCalls', '有效電訪': 'validCalls', '有效電訪紀錄': 'validCalls', validmeetings: 'validMeetings', '有效面訪': 'validMeetings', '有效面訪紀錄': 'validMeetings', abayprogress: 'abayProgress', '亞灣進度': 'abayProgress', '亞灣進度紀錄': 'abayProgress', svipprogress: 'svipProgress', svipupgradeprogress: 'svipProgress', 'svip進度': 'svipProgress', 'svip升等進度': 'svipProgress', vipprogress: 'vipProgress', vipupgradeprogress: 'vipProgress', 'vip升等進度': 'vipProgress', hvipprogress: 'hvipProgress', 'hvip進度': 'hvipProgress', callprogress: 'callProgress', '電訪進度': 'callProgress', coveragerate: 'coverageRate', '覆蓋率': 'coverageRate', '覆蓋率紀錄': 'coverageRate' };
     const projects = {};
     Object.entries(source || {}).forEach(([rawKey, value]) => {
       const key = normalizeKey(rawKey); const target = aliases[key] || aliases[rawKey];
       if (target && $(target)) $(target).value = value ?? '';
       else if (target === 'salespersonName') {
         const person = salespeople.find(item => item.name === String(value).trim()); if (person) { $('entrySalesperson').value = person.id; $('entryTitle').value = person.job_title || ''; }
-      } else if (rawKey && value !== undefined) projects[rawKey] = value;
+      } else if (rawKey && value !== undefined && rawKey !== 'projects' && rawKey !== 'customMetrics') projects[rawKey] = value;
     });
     if (source.projects && typeof source.projects === 'object') Object.assign(projects, source.projects);
-    if (Object.keys(projects).length) { $('projectFields').innerHTML = ''; Object.entries(projects).forEach(([name, value]) => addProjectField(name, value)); }
+    if (source.customMetrics && typeof source.customMetrics === 'object') Object.assign(projects, source.customMetrics);
+    if (Object.keys(projects).length) { $('projectFields').innerHTML = ''; Object.entries(projects).forEach(([name, value]) => addProjectField(name, value)); setMessage('importStatus', `辨識完成；已帶入預設欄位，並自動建立 ${Object.keys(projects).length} 個可編輯的自訂指標。`, false); }
   }
 
   async function handleLocalFile(event) {
     selectedImportFile = event.target.files?.[0] || null; if (!selectedImportFile) return;
     try {
-      if (/image\//.test(selectedImportFile.type)) { setMessage('importStatus', `已選擇圖片：${selectedImportFile.name}；點擊「使用 Gemini 辨識」後才會上傳辨識。`, false); return; }
+      if (/image\//.test(selectedImportFile.type) || /\.pdf$/i.test(selectedImportFile.name)) { setMessage('importStatus', `已選擇 ${/\.pdf$/i.test(selectedImportFile.name) ? 'PDF' : '圖片'}：${selectedImportFile.name}；點擊「使用 Gemini 辨識」後才會上傳辨識。`, false); return; }
       let row = {};
       if (/\.xlsx$/i.test(selectedImportFile.name)) {
         const workbook = XLSX.read(await selectedImportFile.arrayBuffer(), { type: 'array' }); const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -332,7 +337,7 @@
       setMessage('importStatus', 'Gemini 正在辨識…', false);
       const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name } });
       if (error) throw error;
-      applyImportedValues(data?.record || data); setMessage('importStatus', '辨識完成，請檢查數字後再儲存。', false);
+      applyImportedValues(data?.record || data); if (!Object.keys((data?.record || data)?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
     } catch (error) { setMessage('importStatus', `Gemini 辨識失敗：${error.message || error}`); }
   }
 
@@ -343,7 +348,7 @@
   }
 
   async function buildGeminiPayload(file) {
-    if (/image\//.test(file.type)) return { mimeType: file.type, contentBase64: bytesToBase64(new Uint8Array(await file.arrayBuffer())) };
+    if (/image\//.test(file.type) || /\.pdf$/i.test(file.name)) return { mimeType: file.type || 'application/pdf', contentBase64: bytesToBase64(new Uint8Array(await file.arrayBuffer())) };
     let text;
     if (/\.xlsx$/i.test(file.name)) {
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });

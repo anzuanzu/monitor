@@ -53,12 +53,12 @@ create table if not exists public.performance_entries (
   job_title text not null default '',
   valid_calls integer not null default 0 check (valid_calls >= 0),
   valid_meetings integer not null default 0 check (valid_meetings >= 0),
-  abay_progress numeric(5,2) not null default 0 check (abay_progress between 0 and 100),
-  svip_progress numeric(5,2) not null default 0 check (svip_progress between 0 and 100),
-  vip_progress numeric(5,2) not null default 0 check (vip_progress between 0 and 100),
-  hvip_progress numeric(5,2) not null default 0 check (hvip_progress between 0 and 100),
-  call_progress numeric(5,2) not null default 0 check (call_progress between 0 and 100),
-  coverage_rate numeric(5,2) not null default 0 check (coverage_rate between 0 and 100),
+  abay_progress text not null default '',
+  svip_progress text not null default '',
+  vip_progress text not null default '',
+  hvip_progress text not null default '',
+  call_progress text not null default '',
+  coverage_rate text not null default '',
   projects jsonb not null default '{}'::jsonb,
   created_by uuid references auth.users(id),
   updated_by uuid references auth.users(id),
@@ -69,6 +69,35 @@ create table if not exists public.performance_entries (
 
 create index if not exists performance_entries_date_idx on public.performance_entries (view_date desc);
 create index if not exists performance_entries_salesperson_date_idx on public.performance_entries (salesperson_id, view_date desc);
+
+-- 既有資料庫的遷移：進度欄位從百分比改為自由文字紀錄；舊有數字會保留為文字。
+alter table public.performance_entries
+  drop constraint if exists performance_entries_abay_progress_check,
+  drop constraint if exists performance_entries_svip_progress_check,
+  drop constraint if exists performance_entries_vip_progress_check,
+  drop constraint if exists performance_entries_hvip_progress_check,
+  drop constraint if exists performance_entries_call_progress_check,
+  drop constraint if exists performance_entries_coverage_rate_check;
+
+alter table public.performance_entries
+  alter column abay_progress drop default,
+  alter column svip_progress drop default,
+  alter column vip_progress drop default,
+  alter column hvip_progress drop default,
+  alter column call_progress drop default,
+  alter column coverage_rate drop default,
+  alter column abay_progress type text using coalesce(abay_progress::text, ''),
+  alter column svip_progress type text using coalesce(svip_progress::text, ''),
+  alter column vip_progress type text using coalesce(vip_progress::text, ''),
+  alter column hvip_progress type text using coalesce(hvip_progress::text, ''),
+  alter column call_progress type text using coalesce(call_progress::text, ''),
+  alter column coverage_rate type text using coalesce(coverage_rate::text, ''),
+  alter column abay_progress set default '',
+  alter column svip_progress set default '',
+  alter column vip_progress set default '',
+  alter column hvip_progress set default '',
+  alter column call_progress set default '',
+  alter column coverage_rate set default '';
 
 create or replace function public.set_updated_at()
 returns trigger language plpgsql as $$ begin new.updated_at = now(); return new; end; $$;

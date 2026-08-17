@@ -5,9 +5,9 @@
 ## 功能
 
 - 依日期、業務人員與項目繪製績效圖表
-- 每日追蹤：有效電訪、有效面訪、亞灣、SVIP／VIP／HVIP、電訪進度、覆蓋率
-- 自訂任意專案名稱與進度
-- 管理者可由 CSV、XLSX、TXT 帶入表單；圖片或文字檔可選用 Gemini 萃取欄位
+- 每日追蹤：有效電訪、有效面訪，以及亞灣、SVIP 升等、VIP 升等、HVIP、電訪、覆蓋率等文字紀錄
+- 自訂任意指標名稱與文字紀錄；Gemini 找到的非預設指標會自動建立為可編輯欄位
+- 管理者可由 CSV、XLSX、TXT 帶入表單；圖片、PDF 或檔案可選用 Gemini 萃取欄位
 - 角色權限：`viewer` 只看資料，`manager` 才能輸入與管理
 
 ## 第一次雲端設定
@@ -50,10 +50,10 @@ Gemini 金鑰必須只存於 Supabase Edge Function 的 secret。先安裝並登
 ```bash
 supabase link --project-ref YOUR_PROJECT_REF
 supabase functions deploy extract-progress
-supabase secrets set GEMINI_API_KEY=YOUR_GEMINI_API_KEY GEMINI_MODEL=gemini-2.0-flash
+supabase secrets set GEMINI_API_KEY=YOUR_GEMINI_API_KEY GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
-Edge Function 程式在 [`supabase/functions/extract-progress/index.ts`](supabase/functions/extract-progress/index.ts)。它會再次檢查登入者是否為 `manager`，所以檢視者無法呼叫 Gemini。
+Edge Function 程式在 [`supabase/functions/extract-progress/index.ts`](supabase/functions/extract-progress/index.ts)。它會再次檢查登入者是否為 `manager`，所以檢視者無法呼叫 Gemini。`GEMINI_API_KEY` 必須填在 Supabase 的 Edge Function Secret，不會寫入 GitHub、網頁程式或使用者瀏覽器；模型預設為 `gemini-3.5-flash-lite`。
 
 使用「Gemini 辨識」時，系統會在送出前顯示確認；確認後檔案內容才會傳送給 Google Gemini。含有客戶個資、帳號、身分證字號或其他敏感資料的檔案，請先遮蔽後再使用。
 

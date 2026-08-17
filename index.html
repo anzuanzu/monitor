@@ -85,23 +85,23 @@
       <section class="kpi-grid">
         <article class="kpi-card accent-teal"><span>有效電訪</span><strong id="callsKpi">—</strong><small>篩選區間累計</small></article>
         <article class="kpi-card accent-violet"><span>有效面訪</span><strong id="meetingsKpi">—</strong><small>篩選區間累計</small></article>
-        <article class="kpi-card accent-orange"><span>平均覆蓋率</span><strong id="coverageKpi">—</strong><small>已填寫紀錄平均</small></article>
+        <article class="kpi-card accent-orange"><span>指標紀錄</span><strong id="coverageKpi">—</strong><small>含至少一項文字紀錄</small></article>
         <article class="kpi-card accent-blue"><span>追蹤人員</span><strong id="peopleKpi">—</strong><small>篩選區間內有紀錄</small></article>
       </section>
 
       <section class="content-grid">
         <article class="panel chart-panel">
           <div class="panel-head">
-            <div><p class="eyebrow">PERFORMANCE VIEW</p><h2>績效趨勢</h2></div>
+            <div><p class="eyebrow">PERFORMANCE VIEW</p><h2>數字趨勢</h2></div>
             <div class="chart-controls">
               <select id="chartDimension" aria-label="圖表分組"><option value="date">依日期</option><option value="salesperson">依業務人員</option></select>
-              <select id="chartMetric" aria-label="圖表項目"><option value="valid_calls">有效電訪</option><option value="valid_meetings">有效面訪</option><option value="abay_progress">亞灣進度</option><option value="svip_progress">SVIP 進度</option><option value="vip_progress">VIP 升等進度</option><option value="hvip_progress">HVIP 進度</option><option value="call_progress">電訪進度</option><option value="coverage_rate">覆蓋率</option></select>
+              <select id="chartMetric" aria-label="圖表項目"><option value="valid_calls">有效電訪</option><option value="valid_meetings">有效面訪</option></select>
             </div>
           </div>
           <div class="chart-wrap"><canvas id="performanceChart"></canvas></div>
         </article>
         <article class="panel progress-panel">
-          <div class="panel-head"><div><p class="eyebrow">PROGRESS MIX</p><h2>重點進度</h2></div></div>
+          <div class="panel-head"><div><p class="eyebrow">LATEST NOTES</p><h2>最新指標紀錄</h2></div></div>
           <div id="progressSummary" class="progress-summary"><p class="empty-state">尚無資料</p></div>
         </article>
       </section>
@@ -113,7 +113,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣</th><th>SVIP / VIP / HVIP</th><th>覆蓋率</th><th class="manager-only">操作</th></tr></thead>
+            <thead><tr><th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣進度紀錄</th><th>SVIP 升等進度</th><th>VIP 升等進度</th><th>HVIP 進度</th><th>電訪進度</th><th>覆蓋率紀錄</th><th class="manager-only">操作</th></tr></thead>
             <tbody id="recordsBody"></tbody>
           </table>
         </div>
@@ -131,20 +131,20 @@
         <label>職級<input id="entryTitle" type="text" placeholder="例：理財專員" required></label>
         <label>有效電訪紀錄<input id="validCalls" type="number" min="0" value="0" required></label>
         <label>有效面訪紀錄<input id="validMeetings" type="number" min="0" value="0" required></label>
-        <label>亞灣進度 (%)<input id="abayProgress" type="number" min="0" max="100" value="0" required></label>
-        <label>SVIP 進度 (%)<input id="svipProgress" type="number" min="0" max="100" value="0" required></label>
-        <label>VIP 升等進度 (%)<input id="vipProgress" type="number" min="0" max="100" value="0" required></label>
-        <label>HVIP 進度 (%)<input id="hvipProgress" type="number" min="0" max="100" value="0" required></label>
-        <label>電訪進度 (%)<input id="callProgress" type="number" min="0" max="100" value="0" required></label>
-        <label>覆蓋率 (%)<input id="coverageRate" type="number" min="0" max="100" value="0" required></label>
+        <label class="text-record">亞灣進度紀錄<textarea id="abayProgress" rows="3" placeholder="例：已完成提案，等待客戶確認"></textarea></label>
+        <label class="text-record">SVIP 升等進度<textarea id="svipProgress" rows="3" placeholder="例：本週已邀約，預計週五面談"></textarea></label>
+        <label class="text-record">VIP 升等進度<textarea id="vipProgress" rows="3" placeholder="輸入文字紀錄"></textarea></label>
+        <label class="text-record">HVIP 進度<textarea id="hvipProgress" rows="3" placeholder="輸入文字紀錄"></textarea></label>
+        <label class="text-record">電訪進度<textarea id="callProgress" rows="3" placeholder="例：今日已完成 12 通有效電訪"></textarea></label>
+        <label class="text-record">覆蓋率紀錄<textarea id="coverageRate" rows="3" placeholder="例：本週目標客群已覆蓋 18/25 位"></textarea></label>
       </div>
       <section class="project-section">
-        <div class="section-title"><div><h3>各項專案進度</h3><p>可自行新增專案名稱與完成比例</p></div><button id="addProjectButton" class="secondary-btn" type="button">＋ 新增項目</button></div>
+        <div class="section-title"><div><h3>自訂指標紀錄</h3><p>可新增任何指標，並以文字留下完整紀錄；Gemini 找到的非預設指標也會自動建立在此處。</p></div><button id="addProjectButton" class="secondary-btn" type="button">＋ 新增指標</button></div>
         <div id="projectFields" class="project-fields"></div>
       </section>
       <section class="ai-section">
-        <div><p class="eyebrow">OPTIONAL AI IMPORT</p><h3>從圖片或檔案帶入</h3><p>CSV、TXT、XLSX 可在本機讀取；使用 Gemini 辨識圖片或內容時，檔案會在你確認後傳至 Google Gemini。</p></div>
-        <div class="ai-actions"><input id="importFile" type="file" accept=".xlsx,.csv,.txt,image/*"><button id="aiExtractButton" class="secondary-btn" type="button">使用 Gemini 辨識</button></div>
+        <div><p class="eyebrow">GEMINI 3.5 FLASH-LITE</p><h3>從圖片或檔案帶入</h3><p>支援圖片、PDF、CSV、TXT、XLSX。確認後檔案才會傳至 Gemini，既有指標會自動帶入；其他指標會自動建立成可編輯的文字欄位。</p></div>
+        <div class="ai-actions"><input id="importFile" type="file" accept=".xlsx,.csv,.txt,.pdf,image/*"><button id="aiExtractButton" class="secondary-btn" type="button">使用 Gemini 辨識</button></div>
         <p id="importStatus" class="form-message"></p>
       </section>
       <div class="dialog-actions"><button type="button" class="text-btn" data-close-dialog>取消</button><button id="saveEntryButton" class="primary-btn" type="submit">儲存雲端紀錄</button></div>
@@ -152,7 +152,7 @@
     </form>
   </dialog>
 
-  <template id="projectFieldTemplate"><div class="project-row"><input class="project-name" type="text" placeholder="項目名稱"><input class="project-value" type="number" min="0" max="100" placeholder="進度 %"><button class="icon-btn remove-project" type="button" aria-label="刪除項目">×</button></div></template>
+  <template id="projectFieldTemplate"><div class="project-row"><input class="project-name" type="text" placeholder="指標名稱"><textarea class="project-value" rows="2" placeholder="輸入文字紀錄"></textarea><button class="icon-btn remove-project" type="button" aria-label="刪除項目">×</button></div></template>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
