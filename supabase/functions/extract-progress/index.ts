@@ -20,9 +20,10 @@ const buildPrompt = (knownSalespeople: Array<{ name?: string; jobTitle?: string 
   "hvipProgress": "完整文字紀錄或空字串",
   "callProgress": "完整文字紀錄或空字串",
   "coverageRate": "完整文字紀錄或空字串",
-  "customMetrics": { "圖片／檔案中其他未列出的指標名稱": "其完整文字、數字或狀態紀錄" }
+  "customMetrics": { "圖片／檔案中其他未列出的指標名稱": "其完整文字、數字或狀態紀錄" },
+  "batchCoverage": [{ "salespersonName": "完整姓名", "coverageRate": "百分比，例如 44%" }]
 }
-所有「進度」都必須保留為可讀的文字紀錄，不要轉成百分比。customMetrics 只保留實際出現的額外指標；找不到時回傳空物件。
+所有「進度」都必須保留為可讀的文字紀錄，不要轉成百分比。customMetrics 只保留實際出現的額外指標；找不到時回傳空物件。若圖片或檔案是一張「多人名單＋覆蓋率」表格（例如近三個月聯繫累計覆蓋率），請將每位人員與其覆蓋率都放入 batchCoverage，並保留百分比符號；這時單筆的 coverageRate 可留空。不是多人覆蓋率表格時，batchCoverage 回傳空陣列。
 已建立的業務人員名單如下：${JSON.stringify(knownSalespeople.map(person => ({ name: String(person.name || '').trim(), jobTitle: String(person.jobTitle || '').trim() })).filter(person => person.name))}
 從圖片或檔案辨識到業務人員時，請優先比對上述名單，並在 salespersonName 回傳名單中的完整姓名；若沒有可信的相符人員，才回傳空字串。`;
 

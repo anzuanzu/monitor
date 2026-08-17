@@ -381,6 +381,23 @@
     if (Object.keys(projects).length) { $('projectFields').innerHTML = ''; Object.entries(projects).forEach(([name, value]) => addProjectField(name, value)); setMessage('importStatus', `辨識完成；已帶入預設欄位，並自動建立 ${Object.keys(projects).length} 個可編輯的自訂指標。`, false); }
   }
 
+  async function importCoverageBatch(items) {
+    const viewDate = $('viewDate').value || today();
+    const matched = []; const unmatched = [];
+    (Array.isArray(items) ? items : []).forEach(item => {
+      const person = matchSalespersonName(item?.salespersonName);
+      const coverage = String(item?.coverageRate ?? '').trim();
+      if (person && coverage) matched.push({ view_date: viewDate, salesperson_id: person.id, job_title: person.job_title || '', coverage_rate: coverage.includes('%') ? coverage : `${coverage}%`, created_by: currentUser.id, updated_by: currentUser.id });
+      else if (hasText(item?.salespersonName)) unmatched.push(String(item.salespersonName).trim());
+    });
+    if (!matched.length) throw new Error('未比對到可匯入的業務人員與覆蓋率。請先確認人員名單是否完整。');
+    const { error } = await sb.from('performance_entries').upsert(matched, { onConflict: 'view_date,salesperson_id' });
+    if (error) throw error;
+    await loadDashboardData();
+    const unmatchedText = unmatched.length ? `未比對：${[...new Set(unmatched)].join('、')}。` : '';
+    setMessage('importStatus', `已依 ${humanDate(viewDate)} 批次更新 ${matched.length} 位業務人員的覆蓋率。${unmatchedText}`, Boolean(unmatched.length));
+  }
+
   async function handleLocalFile(event) {
     selectedImportFile = event.target.files?.[0] || null; if (!selectedImportFile) return;
     try {
@@ -406,7 +423,13 @@
       setMessage('importStatus', 'Gemini 正在辨識…', false);
       const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name, knownSalespeople: salespeople.map(person => ({ name: person.name, jobTitle: person.job_title || '' })) } });
       if (error) throw error;
-      applyImportedValues(data?.record || data); if (!Object.keys((data?.record || data)?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
+      const result = data || {};
+      const batchCoverage = result.batchCoverage || result.record?.batchCoverage;
+      if (Array.isArray(batchCoverage) && batchCoverage.length) {
+        await importCoverageBatch(batchCoverage);
+      } else {
+        applyImportedValues(result.record || result); if (!Object.keys((result.record || result)?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
+      }
     } catch (error) { setMessage('importStatus', `Gemini 辨識失敗：${error.message || error}`); }
   }
 
