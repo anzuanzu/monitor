@@ -347,6 +347,19 @@
   }
 
   function normalizeKey(key) { return String(key || '').replace(/[\s_（）()]/g, '').toLowerCase(); }
+  function normalizePersonName(name) { return String(name || '').replace(/[\s\-_.，,。()（）]/g, '').toLowerCase(); }
+
+  function matchSalespersonName(value) {
+    const input = normalizePersonName(value);
+    if (!input) return null;
+    const exact = salespeople.find(person => normalizePersonName(person.name) === input);
+    if (exact) return exact;
+    return salespeople.find(person => {
+      const name = normalizePersonName(person.name);
+      return name.length >= 2 && (input.includes(name) || name.includes(input));
+    }) || null;
+  }
+
   function applyImportedValues(source) {
     const aliases = { viewdate: 'viewDate', '檢視日期': 'viewDate', '日期': 'viewDate', salespersonname: 'salespersonName', '業務人員': 'salespersonName', '姓名': 'salespersonName', jobtitle: 'entryTitle', '職級': 'entryTitle', validcalls: 'validCalls', '有效電訪': 'validCalls', '有效電訪紀錄': 'validCalls', validmeetings: 'validMeetings', '有效面訪': 'validMeetings', '有效面訪紀錄': 'validMeetings', abayprogress: 'abayProgress', '亞灣進度': 'abayProgress', '亞灣進度紀錄': 'abayProgress', svipprogress: 'svipProgress', svipupgradeprogress: 'svipProgress', 'svip進度': 'svipProgress', 'svip升等進度': 'svipProgress', vipprogress: 'vipProgress', vipupgradeprogress: 'vipProgress', 'vip升等進度': 'vipProgress', hvipprogress: 'hvipProgress', 'hvip進度': 'hvipProgress', callprogress: 'callProgress', '電訪進度': 'callProgress', coveragerate: 'coverageRate', '覆蓋率': 'coverageRate', '覆蓋率紀錄': 'coverageRate' };
     const projects = {};
@@ -354,7 +367,13 @@
       const key = normalizeKey(rawKey); const target = aliases[key] || aliases[rawKey];
       if (target && $(target)) $(target).value = value ?? '';
       else if (target === 'salespersonName') {
-        const person = salespeople.find(item => item.name === String(value).trim()); if (person) { $('entrySalesperson').value = person.id; $('entryTitle').value = person.job_title || ''; }
+        const person = matchSalespersonName(value);
+        if (person) {
+          $('entrySalesperson').value = person.id; $('entryTitle').value = person.job_title || '';
+          setMessage('importStatus', `已比對業務人員「${person.name}」並自動帶入職級。`, false);
+        } else if (hasText(value)) {
+          setMessage('importStatus', `辨識到業務人員「${String(value).trim()}」，但名單中找不到相符姓名；請手動選擇或先到「管理業務人員」新增。`);
+        }
       } else if (rawKey && value !== undefined && rawKey !== 'projects' && rawKey !== 'customMetrics') projects[rawKey] = value;
     });
     if (source.projects && typeof source.projects === 'object') Object.assign(projects, source.projects);
@@ -385,7 +404,7 @@
     try {
       const payload = await buildGeminiPayload(selectedImportFile);
       setMessage('importStatus', 'Gemini 正在辨識…', false);
-      const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name } });
+      const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name, knownSalespeople: salespeople.map(person => ({ name: person.name, jobTitle: person.job_title || '' })) } });
       if (error) throw error;
       applyImportedValues(data?.record || data); if (!Object.keys((data?.record || data)?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
     } catch (error) { setMessage('importStatus', `Gemini 辨識失敗：${error.message || error}`); }

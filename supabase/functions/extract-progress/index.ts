@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
 
-const prompt = `請從提供的業務績效圖片或檔案萃取「單一筆」紀錄。只回傳符合下列結構的 JSON，不要 markdown，也不要編造資料。
+const buildPrompt = (knownSalespeople: Array<{ name?: string; jobTitle?: string }> = []) => `請從提供的業務績效圖片或檔案萃取「單一筆」紀錄。只回傳符合下列結構的 JSON，不要 markdown，也不要編造資料。
 {
   "viewDate": "YYYY-MM-DD 或空字串",
   "salespersonName": "文字或空字串",
@@ -22,7 +22,9 @@ const prompt = `請從提供的業務績效圖片或檔案萃取「單一筆」�
   "coverageRate": "完整文字紀錄或空字串",
   "customMetrics": { "圖片／檔案中其他未列出的指標名稱": "其完整文字、數字或狀態紀錄" }
 }
-所有「進度」都必須保留為可讀的文字紀錄，不要轉成百分比。customMetrics 只保留實際出現的額外指標；找不到時回傳空物件。`;
+所有「進度」都必須保留為可讀的文字紀錄，不要轉成百分比。customMetrics 只保留實際出現的額外指標；找不到時回傳空物件。
+已建立的業務人員名單如下：${JSON.stringify(knownSalespeople.map(person => ({ name: String(person.name || '').trim(), jobTitle: String(person.jobTitle || '').trim() })).filter(person => person.name))}
+從圖片或檔案辨識到業務人員時，請優先比對上述名單，並在 salespersonName 回傳名單中的完整姓名；若沒有可信的相符人員，才回傳空字串。`;
 
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -34,7 +36,7 @@ Deno.serve(async request => {
     const { data: profile, error: profileError } = await supabase.from('profiles').select('role').eq('id', user.id).single();
     if (profileError || profile?.role !== 'manager') return Response.json({ error: '僅管理者可使用 AI 匯入。' }, { status: 403, headers: corsHeaders });
 
-    const { mimeType, contentBase64 } = await request.json();
+    const { mimeType, contentBase64, knownSalespeople = [] } = await request.json();
     if (!contentBase64 || !mimeType) throw new Error('缺少檔案內容');
     if (contentBase64.length > 12_000_000) throw new Error('檔案過大，請縮小至 8MB 以下。');
     const model = Deno.env.get('GEMINI_MODEL') || 'gemini-3.5-flash-lite';
@@ -42,7 +44,7 @@ Deno.serve(async request => {
     if (!geminiKey) throw new Error('尚未設定 Gemini API 金鑰。');
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: contentBase64 } }] }], generationConfig: { responseMimeType: 'application/json' } })
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: buildPrompt(Array.isArray(knownSalespeople) ? knownSalespeople.slice(0, 300) : []) }, { inline_data: { mime_type: mimeType, data: contentBase64 } }] }], generationConfig: { responseMimeType: 'application/json' } })
     });
     if (!response.ok) throw new Error(`Gemini 回應失敗：${await response.text()}`);
     const result = await response.json();
