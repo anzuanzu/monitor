@@ -82,6 +82,12 @@ alter table public.profiles enable row level security;
 alter table public.salespeople enable row level security;
 alter table public.performance_entries enable row level security;
 
+-- 建表於 SQL Editor 時，需另行授予 authenticated 資料表權限；細部存取仍由下方 RLS policies 控制。
+grant usage on schema public to authenticated;
+grant select on public.profiles to authenticated;
+grant select, insert, update, delete on public.salespeople to authenticated;
+grant select, insert, update, delete on public.performance_entries to authenticated;
+
 drop policy if exists "authenticated users view profiles" on public.profiles;
 create policy "authenticated users view profiles" on public.profiles for select to authenticated using (id = auth.uid());
 drop policy if exists "authenticated users view salespeople" on public.salespeople;
