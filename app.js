@@ -108,6 +108,7 @@
     document.querySelectorAll('[data-close-people-dialog]').forEach(button => button.addEventListener('click', () => $('peopleDialog').close()));
     document.querySelectorAll('[data-close-bulk-dialog]').forEach(button => button.addEventListener('click', () => $('bulkMetricDialog').close()));
     $('projectFields').addEventListener('click', event => { if (event.target.closest('.remove-project')) event.target.closest('.project-row').remove(); });
+    $('recordsHead').addEventListener('click', handleCustomMetricHeaderAction);
     $('entrySalesperson').addEventListener('change', handleSalespersonChange);
     $('peopleBody').addEventListener('click', handlePeopleDirectoryAction);
   }
@@ -251,7 +252,7 @@
   function renderRecords() {
     const noteCell = value => `<td class="note-cell">${hasText(value) ? escapeHtml(value) : '—'}</td>`;
     const customMetricNames = getCustomMetricNames();
-    $('recordsHead').innerHTML = `<th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣進度紀錄</th><th>SVIP 升等進度</th><th>VIP 升等進度</th><th>HVIP 進度</th><th>電訪進度</th><th>覆蓋率紀錄</th>${customMetricNames.map(name => `<th class="custom-metric-head">${escapeHtml(name)}</th>`).join('')}<th class="manager-only" aria-hidden="${!isManager()}">操作</th>`;
+    $('recordsHead').innerHTML = `<th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣進度紀錄</th><th>SVIP 升等進度</th><th>VIP 升等進度</th><th>HVIP 進度</th><th>電訪進度</th><th>覆蓋率紀錄</th>${customMetricNames.map(name => `<th class="custom-metric-head"><div class="custom-metric-title"><span>${escapeHtml(name)}</span><span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}"><button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(name)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(name)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(name)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(name)}">×</button></span></div></th>`).join('')}<th class="manager-only" aria-hidden="${!isManager()}">操作</th>`;
     $('recordsBody').innerHTML = records.length ? records.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td>${noteCell(row.abay_progress)}${noteCell(row.svip_progress)}${noteCell(row.vip_progress)}${noteCell(row.hvip_progress)}${noteCell(row.call_progress)}${noteCell(row.coverage_rate)}${customMetricNames.map(name => noteCell(row.projects?.[name])).join('')}<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : `<tr><td colspan="${12 + customMetricNames.length}"><p class="empty-state">此區間尚無紀錄</p></td></tr>`;
     $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(records.find(row => row.id === button.dataset.edit))));
     $('recordsBody').querySelectorAll('[data-delete]').forEach(button => button.addEventListener('click', () => deleteEntry(button.dataset.delete)));
@@ -471,6 +472,74 @@
     $('bulkMetricBody').innerHTML = '<tr><td colspan="3"><p class="empty-state">此指標已從當日全部業務資料中移除</p></td></tr>';
     setMessage('bulkMetricMessage', `已刪除 ${payloads.length} 位業務人員的「${metricName}」，其他資料均已保留。`, false);
     await loadDashboardData();
+  }
+
+  async function fetchAllProjectRows() {
+    const allRows = []; const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await sb.from('performance_entries').select('view_date, salesperson_id, projects').order('view_date', { ascending: true }).order('salesperson_id', { ascending: true }).range(from, from + pageSize - 1);
+      if (error) throw error;
+      allRows.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
+    return allRows;
+  }
+
+  async function upsertProjectRows(payloads) {
+    const batchSize = 200;
+    for (let offset = 0; offset < payloads.length; offset += batchSize) {
+      const { error } = await sb.from('performance_entries').upsert(payloads.slice(offset, offset + batchSize), { onConflict: 'view_date,salesperson_id' });
+      if (error) throw error;
+    }
+  }
+
+  async function handleCustomMetricHeaderAction(event) {
+    if (!isManager()) return;
+    const renameButton = event.target.closest('[data-rename-metric]');
+    const deleteButton = event.target.closest('[data-delete-metric]');
+    if (!renameButton && !deleteButton) return;
+    const oldName = String((renameButton || deleteButton).dataset.renameMetric || (renameButton || deleteButton).dataset.deleteMetric || '').trim();
+    if (!oldName) return;
+    if (renameButton) await renameCustomMetricColumn(oldName);
+    else await deleteCustomMetricColumn(oldName);
+  }
+
+  async function renameCustomMetricColumn(oldName) {
+    const newName = window.prompt(`將自訂欄位「${oldName}」重新命名為：`, oldName)?.trim();
+    if (!newName || newName === oldName) return;
+    try {
+      const rows = await fetchAllProjectRows();
+      const affectedRows = rows.filter(row => Object.prototype.hasOwnProperty.call(row.projects || {}, oldName));
+      if (!affectedRows.length) return window.alert(`找不到使用「${oldName}」的資料。`);
+      const hasCollision = rows.some(row => Object.prototype.hasOwnProperty.call(row.projects || {}, newName));
+      if (hasCollision && !window.confirm(`已有部分資料使用「${newName}」。是否合併欄位？既有「${newName}」內容會優先保留。`)) return;
+      if (!window.confirm(`確定要將所有日期、所有業務的「${oldName}」重新命名為「${newName}」嗎？`)) return;
+      const payloads = affectedRows.map(row => {
+        const projects = { ...(row.projects || {}) };
+        if (!hasText(projects[newName])) projects[newName] = projects[oldName];
+        delete projects[oldName];
+        return { view_date: row.view_date, salesperson_id: row.salesperson_id, projects, updated_by: currentUser.id };
+      });
+      await upsertProjectRows(payloads);
+      await loadDashboardData();
+      window.alert(`已將 ${payloads.length} 筆資料的「${oldName}」重新命名為「${newName}」。`);
+    } catch (error) { window.alert(`重新命名失敗：${error.message || error}`); }
+  }
+
+  async function deleteCustomMetricColumn(metricName) {
+    if (!window.confirm(`確定要永久刪除所有日期、所有業務的「${metricName}」欄位嗎？其他績效欄位與紀錄會保留。`)) return;
+    try {
+      const rows = await fetchAllProjectRows();
+      const payloads = rows.filter(row => Object.prototype.hasOwnProperty.call(row.projects || {}, metricName)).map(row => {
+        const projects = { ...(row.projects || {}) };
+        delete projects[metricName];
+        return { view_date: row.view_date, salesperson_id: row.salesperson_id, projects, updated_by: currentUser.id };
+      });
+      if (!payloads.length) return window.alert(`找不到使用「${metricName}」的資料。`);
+      await upsertProjectRows(payloads);
+      await loadDashboardData();
+      window.alert(`已從 ${payloads.length} 筆資料中刪除「${metricName}」欄位。`);
+    } catch (error) { window.alert(`刪除欄位失敗：${error.message || error}`); }
   }
 
   function readProjects() {

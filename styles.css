@@ -12,6 +12,12 @@ table{min-width:1320px}th,td{vertical-align:top;white-space:normal}.name-cell{wh
 
 .ai-actions{flex-wrap:wrap;justify-content:flex-end}.import-target-label{display:grid;gap:5px;color:#536561;font-size:11px;font-weight:700;min-width:185px}.import-target-label select,.import-target-label input{padding:7px 9px;font-size:12px}.ai-actions #importFile{max-width:220px}
 .custom-metric-head{background:#eef7f4;color:var(--teal);box-shadow:inset 0 -2px 0 rgba(18,119,108,.16)}
+.custom-metric-title{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:150px}
+.custom-metric-actions{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto}
+.metric-header-btn{width:27px;height:27px;padding:0;border:1px solid rgba(18,119,108,.22);border-radius:8px;background:#fff;color:var(--teal);font:700 16px/1 inherit;cursor:pointer;transition:background .18s ease,border-color .18s ease,transform .18s ease}
+.metric-header-btn:hover{background:#dff2ed;border-color:rgba(18,119,108,.45);transform:translateY(-1px)}
+.metric-header-btn.danger{color:#bd4b50;border-color:rgba(189,75,80,.22)}
+.metric-header-btn.danger:hover{background:#fff0f0;border-color:rgba(189,75,80,.45)}
 @media(max-width:620px){.import-target-label,.ai-actions #importFile{max-width:none;width:100%}}
 
 /* 業務人員名單 */
