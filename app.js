@@ -235,12 +235,18 @@
       const row = records.find(item => hasText(item[key]));
       return row ? { key, value: row[key], row } : null;
     }).filter(Boolean);
-    $('progressSummary').innerHTML = latestNotes.length ? latestNotes.map(({ key, value, row }) => `<div class="progress-item"><div class="progress-label"><span>${metricLabels[key]}</span><strong>${humanDate(row.view_date)} · ${escapeHtml(row.salespeople?.name || '未指派')}</strong></div><p class="progress-note">${escapeHtml(value)}</p></div>`).join('') : '<p class="empty-state">此區間尚無文字指標紀錄</p>';
+    getCustomMetricNames().forEach(name => {
+      const row = records.find(item => hasText(item.projects?.[name]));
+      if (row) latestNotes.push({ key: name, value: row.projects[name], row, custom: true });
+    });
+    $('progressSummary').innerHTML = latestNotes.length ? latestNotes.slice(0, 12).map(({ key, value, row, custom }) => `<div class="progress-item"><div class="progress-label"><span>${escapeHtml(custom ? key : metricLabels[key])}</span><strong>${humanDate(row.view_date)} · ${escapeHtml(row.salespeople?.name || '未指派')}</strong></div><p class="progress-note">${escapeHtml(value)}</p></div>`).join('') : '<p class="empty-state">此區間尚無文字指標紀錄</p>';
   }
 
   function renderRecords() {
     const noteCell = value => `<td class="note-cell">${hasText(value) ? escapeHtml(value) : '—'}</td>`;
-    $('recordsBody').innerHTML = records.length ? records.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td>${noteCell(row.abay_progress)}${noteCell(row.svip_progress)}${noteCell(row.vip_progress)}${noteCell(row.hvip_progress)}${noteCell(row.call_progress)}${noteCell(row.coverage_rate)}<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : '<tr><td colspan="12"><p class="empty-state">此區間尚無紀錄</p></td></tr>';
+    const customMetricNames = getCustomMetricNames();
+    $('recordsHead').innerHTML = `<th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣進度紀錄</th><th>SVIP 升等進度</th><th>VIP 升等進度</th><th>HVIP 進度</th><th>電訪進度</th><th>覆蓋率紀錄</th>${customMetricNames.map(name => `<th class="custom-metric-head">${escapeHtml(name)}</th>`).join('')}<th class="manager-only" aria-hidden="${!isManager()}">操作</th>`;
+    $('recordsBody').innerHTML = records.length ? records.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td>${noteCell(row.abay_progress)}${noteCell(row.svip_progress)}${noteCell(row.vip_progress)}${noteCell(row.hvip_progress)}${noteCell(row.call_progress)}${noteCell(row.coverage_rate)}${customMetricNames.map(name => noteCell(row.projects?.[name])).join('')}<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : `<tr><td colspan="${12 + customMetricNames.length}"><p class="empty-state">此區間尚無紀錄</p></td></tr>`;
     $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(records.find(row => row.id === button.dataset.edit))));
     $('recordsBody').querySelectorAll('[data-delete]').forEach(button => button.addEventListener('click', () => deleteEntry(button.dataset.delete)));
   }
@@ -429,19 +435,62 @@
     return /^\d+(?:\.\d+)?$/.test(text) ? `${text}%` : text;
   };
 
+  function normalizeRecognizedItem(source) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+    const aliases = {
+      salespersonname: 'salespersonName', salesperson: 'salespersonName', name: 'salespersonName', '業務人員': 'salespersonName', '姓名': 'salespersonName',
+      jobtitle: 'jobTitle', title: 'jobTitle', '職級': 'jobTitle', importvalue: 'importValue', value: 'importValue', '數值': 'importValue',
+      validcalls: 'validCalls', '有效電訪': 'validCalls', validmeetings: 'validMeetings', '有效面訪': 'validMeetings',
+      abayprogress: 'abayProgress', '亞灣進度': 'abayProgress', svipupgradeprogress: 'svipUpgradeProgress', svipprogress: 'svipProgress', 'svip升等進度': 'svipUpgradeProgress',
+      vipupgradeprogress: 'vipUpgradeProgress', vipprogress: 'vipProgress', 'vip升等進度': 'vipUpgradeProgress', hvipprogress: 'hvipProgress', 'hvip進度': 'hvipProgress',
+      callprogress: 'callProgress', '電訪進度': 'callProgress', coveragerate: 'coverageRate', '覆蓋率': 'coverageRate'
+    };
+    const normalized = {}; const customMetrics = {};
+    Object.entries(source).forEach(([rawKey, value]) => {
+      if (['customMetrics', 'projects', 'metrics'].includes(rawKey)) return;
+      const target = aliases[normalizeKey(rawKey)];
+      if (target) normalized[target] = value;
+      else if (rawKey && value !== undefined && value !== null && typeof value !== 'object') customMetrics[rawKey] = value;
+    });
+    [source.customMetrics, source.projects].forEach(collection => {
+      if (collection && typeof collection === 'object' && !Array.isArray(collection)) Object.assign(customMetrics, collection);
+    });
+    if (Array.isArray(source.metrics)) source.metrics.forEach(metric => {
+      const name = String(metric?.name || metric?.label || metric?.metric || '').trim();
+      if (name && isProvided(metric?.value)) customMetrics[name] = metric.value;
+    });
+    normalized.customMetrics = Object.fromEntries(Object.entries(customMetrics).filter(([name, value]) => name.trim() && isProvided(value)));
+    return normalized;
+  }
+
+  function mergeRecognizedItems(current, next) {
+    const merged = { ...(current || {}) };
+    Object.entries(next || {}).forEach(([key, value]) => {
+      if (key === 'customMetrics') merged.customMetrics = { ...(merged.customMetrics || {}), ...(value || {}) };
+      else if (isProvided(value)) merged[key] = value;
+    });
+    return merged;
+  }
+
   async function importRecognizedRecords(items, importTarget = { mode: 'auto' }) {
     const viewDate = $('viewDate').value || today();
-    const recognized = (Array.isArray(items) ? items : []).map(item => ({ item, person: matchSalespersonName(item?.salespersonName) })).filter(({ item }) => item && typeof item === 'object');
+    const normalizedItems = (Array.isArray(items) ? items : []).map(normalizeRecognizedItem).filter(Boolean);
+    const unmatched = []; const mergedByPerson = new Map();
+    normalizedItems.forEach(item => {
+      const person = matchSalespersonName(item.salespersonName);
+      if (!person) { if (hasText(item.salespersonName)) unmatched.push(String(item.salespersonName).trim()); return; }
+      mergedByPerson.set(person.id, { person, item: mergeRecognizedItems(mergedByPerson.get(person.id)?.item, item) });
+    });
+    const recognized = [...mergedByPerson.values()];
     const personIds = [...new Set(recognized.map(({ person }) => person?.id).filter(Boolean))];
     if (!personIds.length) throw new Error('檔案中沒有可與業務人員名單比對的姓名。請先建立或確認人員名單。');
 
     const { data: existingRows, error: existingError } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate).in('salesperson_id', personIds);
     if (existingError) throw existingError;
     const existingByPerson = new Map((existingRows || []).map(row => [row.salesperson_id, row]));
-    const payloads = []; const unmatched = []; const skipped = [];
+    const payloads = []; const skipped = [];
 
     recognized.forEach(({ item, person }) => {
-      if (!person) { if (hasText(item.salespersonName)) unmatched.push(String(item.salespersonName).trim()); return; }
       const payload = { view_date: viewDate, salesperson_id: person.id, updated_by: currentUser.id };
       let hasMetric = false;
       if (isProvided(item.jobTitle)) payload.job_title = String(item.jobTitle).trim();

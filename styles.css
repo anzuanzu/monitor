@@ -11,6 +11,7 @@ table{min-width:1320px}th,td{vertical-align:top;white-space:normal}.name-cell{wh
 @media(max-width:620px){.project-row{grid-template-columns:1fr 32px}.project-row textarea{grid-column:1}.project-row .remove-project{grid-column:2;grid-row:1}}
 
 .ai-actions{flex-wrap:wrap;justify-content:flex-end}.import-target-label{display:grid;gap:5px;color:#536561;font-size:11px;font-weight:700;min-width:185px}.import-target-label select,.import-target-label input{padding:7px 9px;font-size:12px}.ai-actions #importFile{max-width:220px}
+.custom-metric-head{background:#eef7f4;color:var(--teal);box-shadow:inset 0 -2px 0 rgba(18,119,108,.16)}
 @media(max-width:620px){.import-target-label,.ai-actions #importFile{max-width:none;width:100%}}
 
 /* 業務人員名單 */

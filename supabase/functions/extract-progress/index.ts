@@ -17,6 +17,7 @@ const buildPrompt = (knownSalespeople: Array<{ name?: string; jobTitle?: string 
     : '本次未指定目標指標，請依欄位意義完整萃取所有實際出現的預設與自訂指標。';
   return `請從提供的業務績效圖片或檔案萃取紀錄。先判斷檔案包含一位或多位業務人員，以及每個人實際提供了哪些指標；只回傳符合下列結構的 JSON，不要 markdown，也不要編造資料。
 {
+  "detectedMetrics": ["檔案中辨識到的所有績效欄位名稱"],
   "records": [{
     "salespersonName": "完整姓名或空字串",
     "jobTitle": "文字或空字串",
@@ -32,7 +33,8 @@ const buildPrompt = (knownSalespeople: Array<{ name?: string; jobTitle?: string 
     "customMetrics": { "其他欄位名稱": "該人員的完整文字、數字或狀態紀錄" }
   }]
 }
-每一列人員都要建立一個 records 項目。所有「進度」都必須保留為可讀的文字紀錄，不要轉成百分比；但覆蓋率請保留百分比。customMetrics 只保留檔案中實際出現、且不是上述預設欄位的指標；找不到時回傳空物件。若圖片是多人覆蓋率表格，records 應包含每一位人員及其 coverageRate。
+請先逐欄讀取表頭，再逐列讀取人員；detectedMetrics 必須列出姓名／職級以外的全部績效欄位。每一列人員都要建立一個 records 項目，不可只回傳第一人，也不可因部分欄位空白而漏掉其他人。同一人在檔案中出現多列時，請合併成一筆完整 records。
+已定義的欄位請放進對應欄位；任何未定義的新欄位都必須使用原始表頭名稱加入 customMetrics，讓系統自動建立欄位。所有「進度」保留為可讀的完整文字，不要轉成百分比；覆蓋率保留百分比。若圖片是多人表格，records 必須包含表格內每一位人員及其各欄數值。
 ${targetInstruction}
 已建立的業務人員名單如下：${JSON.stringify(knownSalespeople.map(person => ({ name: String(person.name || '').trim(), jobTitle: String(person.jobTitle || '').trim() })).filter(person => person.name))}
 從圖片或檔案辨識到業務人員時，請優先比對上述名單，並在 salespersonName 回傳名單中的完整姓名；若沒有可信的相符人員，才回傳空字串。`;
@@ -56,13 +58,16 @@ Deno.serve(async request => {
     if (!geminiKey) throw new Error('尚未設定 Gemini API 金鑰。');
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: buildPrompt(Array.isArray(knownSalespeople) ? knownSalespeople.slice(0, 300) : [], importTarget && typeof importTarget === 'object' ? importTarget : {}) }, { inline_data: { mime_type: mimeType, data: contentBase64 } }] }], generationConfig: { responseMimeType: 'application/json' } })
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: buildPrompt(Array.isArray(knownSalespeople) ? knownSalespeople.slice(0, 300) : [], importTarget && typeof importTarget === 'object' ? importTarget : {}) }, { inline_data: { mime_type: mimeType, data: contentBase64 } }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1, candidateCount: 1 } })
     });
     if (!response.ok) throw new Error(`Gemini 回應失敗：${await response.text()}`);
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error('Gemini 未回傳可讀取內容');
-    return Response.json({ record: JSON.parse(text) }, { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const parsed = JSON.parse(text);
+    const record = Array.isArray(parsed) ? { records: parsed } : parsed;
+    if (!Array.isArray(record?.records)) throw new Error('Gemini 回傳格式不完整，請重新辨識。');
+    return Response.json({ record }, { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error) {
     return Response.json({ error: error.message || '辨識失敗' }, { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
