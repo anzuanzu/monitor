@@ -19,6 +19,8 @@
   let selectedImportFile = null;
   let bulkMetricLoadedKey = '';
   let recoveryMode = false;
+  let toastTimer = null;
+  let dashboardLoadId = 0;
 
   const today = () => new Date().toISOString().slice(0, 10);
   const number = value => Number(value || 0);
@@ -27,6 +29,16 @@
   const setMessage = (id, message = '', error = true) => {
     const el = $(id); if (!el) return;
     el.textContent = message; el.style.color = error ? 'var(--danger)' : 'var(--teal)';
+  };
+  const showToast = (message, type = 'success') => {
+    const region = $('toastRegion'); if (!region || !message) return;
+    window.clearTimeout(toastTimer);
+    region.innerHTML = `<div class="toast ${type === 'error' ? 'error' : ''}" role="status">${escapeHtml(message)}</div>`;
+    const toast = region.firstElementChild;
+    toastTimer = window.setTimeout(() => {
+      toast?.classList.add('is-leaving');
+      window.setTimeout(() => { if (region.contains(toast)) toast.remove(); }, 240);
+    }, 4200);
   };
   const humanDate = value => value ? new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(`${value}T00:00:00`)) : '—';
   const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -53,8 +65,8 @@
     $('newPasswordInput').focus();
   }
 
-  function configureDateFilters() {
-    const to = today(); const from = new Date(); from.setDate(from.getDate() - 29);
+  function configureDateFilters(days = 30) {
+    const to = today(); const from = new Date(); from.setDate(from.getDate() - (days - 1));
     $('toDate').value = to; $('fromDate').value = from.toISOString().slice(0, 10);
   }
 
@@ -89,7 +101,11 @@
     $('passwordResetRequestForm').addEventListener('submit', requestPasswordReset);
     $('signOutButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', loadDashboardData);
-    $('applyFilterButton').addEventListener('click', loadDashboardData);
+    $('applyFilterButton').addEventListener('click', applyFilters);
+    $('clearFilterButton').addEventListener('click', clearFilters);
+    $('recordSearch').addEventListener('input', renderDashboard);
+    document.querySelectorAll('[data-range-days]').forEach(button => button.addEventListener('click', () => setQuickRange(number(button.dataset.rangeDays))));
+    ['fromDate', 'toDate'].forEach(id => $(id).addEventListener('change', () => setActiveRangeChip()));
     $('openPeopleButton').addEventListener('click', openPeopleDirectory);
     $('openBulkMetricButton').addEventListener('click', openBulkMetricEditor);
     $('openEntryButton').addEventListener('click', () => openEntry());
@@ -189,17 +205,53 @@
 
   async function loadDashboardData() {
     if (!currentUser) return;
+    const loadId = ++dashboardLoadId;
     const from = $('fromDate').value; const to = $('toDate').value; const salespersonId = $('salespersonFilter').value;
-    let peopleQuery = sb.from('salespeople').select('*').eq('is_active', true).order('name');
-    const peopleResponse = await peopleQuery;
-    if (peopleResponse.error) return showSetup(`無法讀取雲端資料：${peopleResponse.error.message}`);
-    salespeople = peopleResponse.data || [];
-    let query = sb.from('performance_entries').select('*, salespeople(id,name,job_title)').gte('view_date', from).lte('view_date', to).order('view_date', { ascending: false });
-    if (salespersonId) query = query.eq('salesperson_id', salespersonId);
-    const response = await query;
-    if (response.error) return showSetup(`無法讀取雲端資料：${response.error.message}`);
-    records = response.data || [];
-    populatePeopleSelects(); renderDashboard();
+    if (from && to && from > to) return showToast('起始日期不可晚於結束日期。', 'error');
+    const loadingButtons = [$('refreshButton'), $('applyFilterButton')].filter(Boolean);
+    loadingButtons.forEach(button => { button.disabled = true; button.classList.add('is-loading'); button.setAttribute('aria-busy', 'true'); });
+    try {
+      const peopleResponse = await sb.from('salespeople').select('*').eq('is_active', true).order('name');
+      if (peopleResponse.error) throw peopleResponse.error;
+      if (loadId !== dashboardLoadId) return;
+      salespeople = peopleResponse.data || [];
+      let query = sb.from('performance_entries').select('*, salespeople(id,name,job_title)').gte('view_date', from).lte('view_date', to).order('view_date', { ascending: false });
+      if (salespersonId) query = query.eq('salesperson_id', salespersonId);
+      const response = await query;
+      if (response.error) throw response.error;
+      if (loadId !== dashboardLoadId) return;
+      records = response.data || [];
+      $('setupNotice').classList.add('hidden');
+      populatePeopleSelects(); renderDashboard();
+    } catch (error) {
+      showSetup(`無法讀取雲端資料：${error.message || error}`);
+      showToast('雲端資料讀取失敗，請稍後重試。', 'error');
+    } finally {
+      if (loadId === dashboardLoadId) loadingButtons.forEach(button => { button.disabled = false; button.classList.remove('is-loading'); button.removeAttribute('aria-busy'); });
+    }
+  }
+
+  function applyFilters() {
+    setActiveRangeChip();
+    loadDashboardData();
+  }
+
+  function setQuickRange(days) {
+    configureDateFilters(days);
+    setActiveRangeChip(days);
+    loadDashboardData();
+  }
+
+  function setActiveRangeChip(activeDays = 0) {
+    document.querySelectorAll('[data-range-days]').forEach(button => button.classList.toggle('active', number(button.dataset.rangeDays) === activeDays));
+  }
+
+  function clearFilters() {
+    configureDateFilters(30);
+    $('salespersonFilter').value = '';
+    $('recordSearch').value = '';
+    setActiveRangeChip(30);
+    loadDashboardData();
   }
 
   function populatePeopleSelects() {
@@ -211,21 +263,36 @@
   }
 
   function renderDashboard() {
-    const calls = records.reduce((sum, row) => sum + number(row.valid_calls), 0);
-    const meetings = records.reduce((sum, row) => sum + number(row.valid_meetings), 0);
-    const noteRows = records.filter(row => noteMetricKeys.some(key => hasText(row[key])) || Object.values(row.projects || {}).some(hasText));
+    const visibleRecords = getVisibleRecords();
+    const calls = visibleRecords.reduce((sum, row) => sum + number(row.valid_calls), 0);
+    const meetings = visibleRecords.reduce((sum, row) => sum + number(row.valid_meetings), 0);
+    const noteRows = visibleRecords.filter(row => noteMetricKeys.some(key => hasText(row[key])) || Object.values(row.projects || {}).some(hasText));
     $('callsKpi').textContent = calls.toLocaleString(); $('meetingsKpi').textContent = meetings.toLocaleString();
     $('coverageKpi').textContent = noteRows.length ? `${noteRows.length} 筆` : '—';
-    $('peopleKpi').textContent = new Set(records.map(row => row.salesperson_id)).size.toLocaleString();
+    $('peopleKpi').textContent = new Set(visibleRecords.map(row => row.salesperson_id)).size.toLocaleString();
     $('dateRangeLabel').textContent = `${humanDate($('fromDate').value)} 至 ${humanDate($('toDate').value)}`;
-    $('recordCount').textContent = `${records.length} 筆`;
+    $('recordCount').textContent = `${visibleRecords.length} 筆`;
+    const selectedPerson = $('salespersonFilter').selectedOptions?.[0]?.textContent || '全部業務人員';
+    const search = $('recordSearch').value.trim();
+    $('filterSummary').textContent = `${selectedPerson}${search ? `・搜尋「${search}」` : ''}・${visibleRecords.length} 筆結果`;
     renderChart(); renderProgressSummary(); renderRecords();
+  }
+
+  function getVisibleRecords() {
+    const keyword = normalizeKey($('recordSearch')?.value || '');
+    if (!keyword) return records;
+    return records.filter(row => normalizeKey([
+      row.salespeople?.name, row.job_title, row.salespeople?.job_title,
+      row.valid_calls, row.valid_meetings,
+      ...noteMetricKeys.map(key => row[key]),
+      ...Object.entries(row.projects || {}).flat()
+    ].filter(value => value !== null && value !== undefined).join(' ')).includes(keyword));
   }
 
   function renderChart() {
     const metric = numericMetricKeys.includes($('chartMetric').value) ? $('chartMetric').value : 'valid_calls'; const dimension = $('chartDimension').value;
     const groups = new Map();
-    records.forEach(row => {
+    getVisibleRecords().forEach(row => {
       const key = dimension === 'date' ? row.view_date : (row.salespeople?.name || '未指派');
       const item = groups.get(key) || { total: 0, count: 0 }; item.total += number(row[metric]); item.count += 1; groups.set(key, item);
     });
@@ -237,24 +304,26 @@
   }
 
   function renderProgressSummary() {
-    if (!records.length) { $('progressSummary').innerHTML = '<p class="empty-state">尚無資料</p>'; return; }
+    const visibleRecords = getVisibleRecords();
+    if (!visibleRecords.length) { $('progressSummary').innerHTML = '<p class="empty-state">尚無符合條件的資料</p>'; return; }
     const latestNotes = noteMetricKeys.map(key => {
-      const row = records.find(item => hasText(item[key]));
+      const row = visibleRecords.find(item => hasText(item[key]));
       return row ? { key, value: row[key], row } : null;
     }).filter(Boolean);
     getCustomMetricNames().forEach(name => {
-      const row = records.find(item => hasText(item.projects?.[name]));
+      const row = visibleRecords.find(item => hasText(item.projects?.[name]));
       if (row) latestNotes.push({ key: name, value: row.projects[name], row, custom: true });
     });
     $('progressSummary').innerHTML = latestNotes.length ? latestNotes.slice(0, 12).map(({ key, value, row, custom }) => `<div class="progress-item"><div class="progress-label"><span>${escapeHtml(custom ? key : metricLabels[key])}</span><strong>${humanDate(row.view_date)} · ${escapeHtml(row.salespeople?.name || '未指派')}</strong></div><p class="progress-note">${escapeHtml(value)}</p></div>`).join('') : '<p class="empty-state">此區間尚無文字指標紀錄</p>';
   }
 
   function renderRecords() {
+    const visibleRecords = getVisibleRecords();
     const noteCell = value => `<td class="note-cell">${hasText(value) ? escapeHtml(value) : '—'}</td>`;
     const customMetricNames = getCustomMetricNames();
     $('recordsHead').innerHTML = `<th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣進度紀錄</th><th>SVIP 升等進度</th><th>VIP 升等進度</th><th>HVIP 進度</th><th>電訪進度</th><th>覆蓋率紀錄</th>${customMetricNames.map(name => `<th class="custom-metric-head"><div class="custom-metric-title"><span>${escapeHtml(name)}</span><span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}"><button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(name)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(name)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(name)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(name)}">×</button></span></div></th>`).join('')}<th class="manager-only" aria-hidden="${!isManager()}">操作</th>`;
-    $('recordsBody').innerHTML = records.length ? records.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td>${noteCell(row.abay_progress)}${noteCell(row.svip_progress)}${noteCell(row.vip_progress)}${noteCell(row.hvip_progress)}${noteCell(row.call_progress)}${noteCell(row.coverage_rate)}${customMetricNames.map(name => noteCell(row.projects?.[name])).join('')}<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : `<tr><td colspan="${12 + customMetricNames.length}"><p class="empty-state">此區間尚無紀錄</p></td></tr>`;
-    $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(records.find(row => row.id === button.dataset.edit))));
+    $('recordsBody').innerHTML = visibleRecords.length ? visibleRecords.map(row => `<tr><td>${humanDate(row.view_date)}</td><td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td><td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td><td>${number(row.valid_calls)}</td><td>${number(row.valid_meetings)}</td>${noteCell(row.abay_progress)}${noteCell(row.svip_progress)}${noteCell(row.vip_progress)}${noteCell(row.hvip_progress)}${noteCell(row.call_progress)}${noteCell(row.coverage_rate)}${customMetricNames.map(name => noteCell(row.projects?.[name])).join('')}<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td></tr>`).join('') : `<tr><td colspan="${12 + customMetricNames.length}"><p class="empty-state">沒有符合目前條件的紀錄</p></td></tr>`;
+    $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(visibleRecords.find(row => row.id === button.dataset.edit))));
     $('recordsBody').querySelectorAll('[data-delete]').forEach(button => button.addEventListener('click', () => deleteEntry(button.dataset.delete)));
   }
 
@@ -448,7 +517,7 @@
     if (error) return setMessage('bulkMetricMessage', `同步儲存失敗：${error.message}`);
     $('bulkMetricDialog').close();
     await loadDashboardData();
-    window.alert(`已同步更新 ${payloads.length} 位業務人員的「${metricName}」。`);
+    showToast(`已同步更新 ${payloads.length} 位業務人員的「${metricName}」。`);
   }
 
   async function deleteBulkMetricValues() {
@@ -510,7 +579,7 @@
     try {
       const rows = await fetchAllProjectRows();
       const affectedRows = rows.filter(row => Object.prototype.hasOwnProperty.call(row.projects || {}, oldName));
-      if (!affectedRows.length) return window.alert(`找不到使用「${oldName}」的資料。`);
+      if (!affectedRows.length) return showToast(`找不到使用「${oldName}」的資料。`, 'error');
       const hasCollision = rows.some(row => Object.prototype.hasOwnProperty.call(row.projects || {}, newName));
       if (hasCollision && !window.confirm(`已有部分資料使用「${newName}」。是否合併欄位？既有「${newName}」內容會優先保留。`)) return;
       if (!window.confirm(`確定要將所有日期、所有業務的「${oldName}」重新命名為「${newName}」嗎？`)) return;
@@ -522,8 +591,8 @@
       });
       await upsertProjectRows(payloads);
       await loadDashboardData();
-      window.alert(`已將 ${payloads.length} 筆資料的「${oldName}」重新命名為「${newName}」。`);
-    } catch (error) { window.alert(`重新命名失敗：${error.message || error}`); }
+      showToast(`已將 ${payloads.length} 筆資料的「${oldName}」重新命名為「${newName}」。`);
+    } catch (error) { showToast(`重新命名失敗：${error.message || error}`, 'error'); }
   }
 
   async function deleteCustomMetricColumn(metricName) {
@@ -535,11 +604,11 @@
         delete projects[metricName];
         return { view_date: row.view_date, salesperson_id: row.salesperson_id, projects, updated_by: currentUser.id };
       });
-      if (!payloads.length) return window.alert(`找不到使用「${metricName}」的資料。`);
+      if (!payloads.length) return showToast(`找不到使用「${metricName}」的資料。`, 'error');
       await upsertProjectRows(payloads);
       await loadDashboardData();
-      window.alert(`已從 ${payloads.length} 筆資料中刪除「${metricName}」欄位。`);
-    } catch (error) { window.alert(`刪除欄位失敗：${error.message || error}`); }
+      showToast(`已從 ${payloads.length} 筆資料中刪除「${metricName}」欄位。`);
+    } catch (error) { showToast(`刪除欄位失敗：${error.message || error}`, 'error'); }
   }
 
   function readProjects() {
@@ -556,13 +625,13 @@
     const id = $('entryId').value;
     const response = id ? await sb.from('performance_entries').update(payload).eq('id', id) : await sb.from('performance_entries').insert({ ...payload, created_by: currentUser.id });
     if (response.error) return setMessage('entryMessage', response.error.message);
-    $('entryDialog').close(); await loadDashboardData();
+    $('entryDialog').close(); await loadDashboardData(); showToast(id ? '追蹤紀錄已更新。' : '追蹤紀錄已新增。');
   }
 
   async function deleteEntry(id) {
     if (!isManager() || !window.confirm('確定要刪除這筆紀錄？此動作無法復原。')) return;
     const { error } = await sb.from('performance_entries').delete().eq('id', id);
-    if (error) return window.alert(error.message); await loadDashboardData();
+    if (error) return showToast(error.message, 'error'); await loadDashboardData(); showToast('追蹤紀錄已刪除。');
   }
 
   function normalizeKey(key) { return String(key || '').replace(/[\s_（）()]/g, '').toLowerCase(); }
@@ -724,7 +793,7 @@
       const recognizedRecords = result.records || result.record?.records || result.batchCoverage || result.record?.batchCoverage || (hasText(candidateRecord?.salespersonName) ? [candidateRecord] : null);
       if (Array.isArray(recognizedRecords) && recognizedRecords.length) {
         const message = await importRecognizedRecords(recognizedRecords, importTarget);
-        $('entryDialog').close(); window.alert(message);
+        $('entryDialog').close(); showToast(message);
       } else {
         applyImportedValues(candidateRecord); if (!Object.keys(candidateRecord?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
       }

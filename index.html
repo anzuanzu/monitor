@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f3f6f1">
   <title>軌跡｜業務績效監控</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ui-refresh.css">
 </head>
 <body>
   <div class="noise"></div>
@@ -21,6 +23,7 @@
         <h1>把每天的行動，
           <br><em>累積成可見的成長。</em></h1>
         <p>登入後可跨裝置檢視團隊軌跡。僅「管理者」帳號可新增或修改資料。</p>
+        <div class="auth-benefits" aria-label="系統特色"><span>雲端同步</span><span>權限控管</span><span>AI 檔案辨識</span></div>
         <form id="signInForm" class="auth-form">
           <label>電子郵件<input id="emailInput" type="email" autocomplete="email" placeholder="name@company.com" required></label>
           <label>密碼<input id="passwordInput" type="password" autocomplete="current-password" placeholder="輸入密碼" required></label>
@@ -67,34 +70,47 @@
         <div>
           <p class="eyebrow">TEAM PULSE</p>
           <h1>業務績效總覽</h1>
-          <p id="dateRangeLabel" class="muted">載入中…</p>
+          <p class="page-description">把團隊行動、進度紀錄與自訂指標集中在同一個工作畫面。</p>
+          <p id="dateRangeLabel" class="muted date-range-label">載入中…</p>
         </div>
         <div class="head-actions">
-          <button id="refreshButton" class="secondary-btn">重新整理</button>
-          <button id="openPeopleButton" class="secondary-btn manager-only">管理業務人員</button>
-          <button id="openBulkMetricButton" class="secondary-btn manager-only">批次編輯自訂指標</button>
+          <button id="refreshButton" class="secondary-btn" title="重新讀取雲端資料"><span class="button-icon">↻</span>重新整理</button>
+          <button id="openPeopleButton" class="secondary-btn manager-only"><span class="button-icon">◎</span>人員名單</button>
+          <button id="openBulkMetricButton" class="secondary-btn manager-only"><span class="button-icon">≡</span>批次編輯</button>
           <button id="openEntryButton" class="primary-btn manager-only">新增追蹤紀錄 <span>＋</span></button>
         </div>
       </div>
 
-      <section class="filter-bar" aria-label="篩選資料">
-        <label>起始日期<input id="fromDate" type="date"></label>
-        <label>結束日期<input id="toDate" type="date"></label>
-        <label>業務人員<select id="salespersonFilter"><option value="">全部業務人員</option></select></label>
-        <button id="applyFilterButton" class="secondary-btn">套用篩選</button>
+      <section class="filter-panel" aria-label="篩選資料">
+        <div class="filter-panel-head">
+          <div><strong>搜尋與篩選</strong><span id="filterSummary">近 30 日・全部業務人員</span></div>
+          <div class="quick-ranges" aria-label="快速日期區間">
+            <button type="button" class="range-chip" data-range-days="7">7 日</button>
+            <button type="button" class="range-chip active" data-range-days="30">30 日</button>
+            <button type="button" class="range-chip" data-range-days="90">90 日</button>
+          </div>
+        </div>
+        <div class="filter-bar">
+          <label>起始日期<input id="fromDate" type="date"></label>
+          <label>結束日期<input id="toDate" type="date"></label>
+          <label>業務人員<select id="salespersonFilter"><option value="">全部業務人員</option></select></label>
+          <label class="search-filter">關鍵字搜尋<input id="recordSearch" type="search" autocomplete="off" placeholder="姓名、職級或紀錄內容"></label>
+          <button id="applyFilterButton" class="primary-btn">套用</button>
+          <button id="clearFilterButton" class="text-btn">清除</button>
+        </div>
       </section>
 
       <section class="kpi-grid">
-        <article class="kpi-card accent-teal"><span>有效電訪</span><strong id="callsKpi">—</strong><small>篩選區間累計</small></article>
-        <article class="kpi-card accent-violet"><span>有效面訪</span><strong id="meetingsKpi">—</strong><small>篩選區間累計</small></article>
-        <article class="kpi-card accent-orange"><span>指標紀錄</span><strong id="coverageKpi">—</strong><small>含至少一項文字紀錄</small></article>
-        <article class="kpi-card accent-blue"><span>追蹤人員</span><strong id="peopleKpi">—</strong><small>篩選區間內有紀錄</small></article>
+        <article class="kpi-card accent-teal" data-icon="☎"><span>有效電訪</span><strong id="callsKpi">—</strong><small>篩選區間累計</small></article>
+        <article class="kpi-card accent-violet" data-icon="◇"><span>有效面訪</span><strong id="meetingsKpi">—</strong><small>篩選區間累計</small></article>
+        <article class="kpi-card accent-orange" data-icon="✦"><span>指標紀錄</span><strong id="coverageKpi">—</strong><small>含至少一項文字紀錄</small></article>
+        <article class="kpi-card accent-blue" data-icon="◉"><span>追蹤人員</span><strong id="peopleKpi">—</strong><small>篩選區間內有紀錄</small></article>
       </section>
 
       <section class="content-grid">
         <article class="panel chart-panel">
           <div class="panel-head">
-            <div><p class="eyebrow">PERFORMANCE VIEW</p><h2>數字趨勢</h2></div>
+            <div><p class="eyebrow">PERFORMANCE VIEW</p><h2>數字趨勢</h2><p class="panel-description">比較區間內的有效行動量</p></div>
             <div class="chart-controls">
               <select id="chartDimension" aria-label="圖表分組"><option value="date">依日期</option><option value="salesperson">依業務人員</option></select>
               <select id="chartMetric" aria-label="圖表項目"><option value="valid_calls">有效電訪</option><option value="valid_meetings">有效面訪</option></select>
@@ -103,17 +119,17 @@
           <div class="chart-wrap"><canvas id="performanceChart"></canvas></div>
         </article>
         <article class="panel progress-panel">
-          <div class="panel-head"><div><p class="eyebrow">LATEST NOTES</p><h2>最新指標紀錄</h2></div></div>
+          <div class="panel-head"><div><p class="eyebrow">LATEST NOTES</p><h2>最新指標紀錄</h2><p class="panel-description">快速掌握團隊最近更新</p></div></div>
           <div id="progressSummary" class="progress-summary"><p class="empty-state">尚無資料</p></div>
         </article>
       </section>
 
       <section class="panel records-panel">
         <div class="panel-head">
-          <div><p class="eyebrow">ACTIVITY LOG</p><h2>業務軌跡</h2></div>
-          <span id="recordCount" class="record-count">0 筆</span>
+          <div><p class="eyebrow">ACTIVITY LOG</p><h2>業務軌跡</h2><p class="panel-description">向右滑動可查看全部指標；自訂欄位可直接重新命名或刪除</p></div>
+          <span id="recordCount" class="record-count count-badge">0 筆</span>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap records-table-wrap" tabindex="0" aria-label="業務軌跡資料表，可水平捲動">
           <table>
             <thead><tr id="recordsHead"><th>檢視日期</th><th>業務人員</th><th>職級</th><th>有效電訪</th><th>有效面訪</th><th>亞灣進度紀錄</th><th>SVIP 升等進度</th><th>VIP 升等進度</th><th>HVIP 進度</th><th>電訪進度</th><th>覆蓋率紀錄</th><th class="manager-only">操作</th></tr></thead>
             <tbody id="recordsBody"></tbody>
@@ -122,6 +138,8 @@
       </section>
     </section>
   </main>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
   <dialog id="entryDialog" class="entry-dialog">
     <form id="entryForm" method="dialog">
