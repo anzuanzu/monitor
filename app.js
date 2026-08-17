@@ -454,12 +454,13 @@
       const { data, error } = await sb.functions.invoke('extract-progress', { body: { ...payload, filename: selectedImportFile.name, knownSalespeople: salespeople.map(person => ({ name: person.name, jobTitle: person.job_title || '' })) } });
       if (error) throw error;
       const result = data || {};
-      const recognizedRecords = result.records || result.record?.records || result.batchCoverage || result.record?.batchCoverage;
+      const candidateRecord = result.record || result;
+      const recognizedRecords = result.records || result.record?.records || result.batchCoverage || result.record?.batchCoverage || (hasText(candidateRecord?.salespersonName) ? [candidateRecord] : null);
       if (Array.isArray(recognizedRecords) && recognizedRecords.length) {
         const message = await importRecognizedRecords(recognizedRecords);
         $('entryDialog').close(); window.alert(message);
       } else {
-        applyImportedValues(result.record || result); if (!Object.keys((result.record || result)?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
+        applyImportedValues(candidateRecord); if (!Object.keys(candidateRecord?.customMetrics || {}).length) setMessage('importStatus', '辨識完成，請檢查帶入的文字紀錄後再儲存。', false);
       }
     } catch (error) { setMessage('importStatus', `Gemini 辨識失敗：${error.message || error}`); }
   }
