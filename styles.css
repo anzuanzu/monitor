@@ -20,4 +20,5 @@ table{min-width:1320px}th,td{vertical-align:top;white-space:normal}.name-cell{wh
 
 /* 全員自訂指標批次編輯 */
 .bulk-metric-dialog{width:min(920px,calc(100vw - 32px))}.bulk-metric-controls{display:grid;grid-template-columns:180px minmax(260px,1fr) auto;align-items:end;gap:12px}.bulk-metric-controls label{display:grid;gap:7px;color:#394845;font-weight:600;font-size:12px}.bulk-metric-table{margin-top:12px;border:1px solid var(--line);border-radius:12px;max-height:48vh}.bulk-metric-table table{min-width:680px}.bulk-metric-table th{position:sticky;top:0;z-index:1}.bulk-metric-table td:last-child{width:62%}.bulk-metric-table textarea{min-height:54px}
+.danger-btn{border-color:#e8bec1;color:var(--danger);background:#fff7f7}.danger-btn:hover{background:#fbeaec}.dialog-action-spacer{flex:1}.bulk-dialog-actions{width:100%}
 @media(max-width:700px){.bulk-metric-controls{grid-template-columns:1fr}.bulk-metric-controls button{width:100%}.head-actions{flex-wrap:wrap}}

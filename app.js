@@ -97,6 +97,7 @@
     $('peopleForm').addEventListener('submit', savePerson);
     $('bulkMetricForm').addEventListener('submit', saveBulkMetricValues);
     $('loadBulkMetricButton').addEventListener('click', loadBulkMetricValues);
+    $('deleteBulkMetricButton').addEventListener('click', deleteBulkMetricValues);
     $('addProjectButton').addEventListener('click', () => addProjectField());
     $('importFile').addEventListener('change', handleLocalFile);
     $('aiExtractButton').addEventListener('click', extractWithGemini);
@@ -447,6 +448,29 @@
     $('bulkMetricDialog').close();
     await loadDashboardData();
     window.alert(`已同步更新 ${payloads.length} 位業務人員的「${metricName}」。`);
+  }
+
+  async function deleteBulkMetricValues() {
+    if (!isManager()) return;
+    const viewDate = $('bulkMetricDate').value;
+    const metricName = $('bulkMetricName').value.trim();
+    if (!viewDate || !metricName) return setMessage('bulkMetricMessage', '請先選擇日期與指標名稱。');
+    if (!window.confirm(`確定要刪除 ${humanDate(viewDate)} 全部業務人員的「${metricName}」嗎？其他指標與績效紀錄會保留。`)) return;
+    setMessage('bulkMetricMessage', '正在刪除全部業務的指定指標…', false);
+    const { data, error: loadError } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate);
+    if (loadError) return setMessage('bulkMetricMessage', `無法讀取既有資料：${loadError.message}`);
+    const payloads = (data || []).filter(row => Object.prototype.hasOwnProperty.call(row.projects || {}, metricName)).map(row => {
+      const projects = { ...(row.projects || {}) };
+      delete projects[metricName];
+      return { view_date: viewDate, salesperson_id: row.salesperson_id, projects, updated_by: currentUser.id };
+    });
+    if (!payloads.length) return setMessage('bulkMetricMessage', `當日沒有任何業務人員使用「${metricName}」。`);
+    const { error } = await sb.from('performance_entries').upsert(payloads, { onConflict: 'view_date,salesperson_id' });
+    if (error) return setMessage('bulkMetricMessage', `刪除失敗：${error.message}`);
+    bulkMetricLoadedKey = '';
+    $('bulkMetricBody').innerHTML = '<tr><td colspan="3"><p class="empty-state">此指標已從當日全部業務資料中移除</p></td></tr>';
+    setMessage('bulkMetricMessage', `已刪除 ${payloads.length} 位業務人員的「${metricName}」，其他資料均已保留。`, false);
+    await loadDashboardData();
   }
 
   function readProjects() {
