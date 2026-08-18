@@ -72,10 +72,17 @@ create table if not exists public.custom_metric_definitions (
   id uuid primary key default gen_random_uuid(),
   name text not null unique check (char_length(trim(name)) > 0),
   storage_mode text not null default 'daily' check (storage_mode in ('daily', 'cumulative')),
+  value_type text not null default 'text' check (value_type in ('text', 'number')),
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.custom_metric_definitions
+  add column if not exists value_type text not null default 'text';
+alter table public.custom_metric_definitions
+  drop constraint if exists custom_metric_definitions_value_type_check,
+  add constraint custom_metric_definitions_value_type_check check (value_type in ('text', 'number'));
 
 create table if not exists public.cumulative_metric_values (
   metric_id uuid not null references public.custom_metric_definitions(id) on delete cascade,

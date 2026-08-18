@@ -256,3 +256,12 @@ body.records-focus-active{overflow:hidden}
 .bulk-metric-controls select:disabled{opacity:.75;cursor:not-allowed;background:#f1f4f2}
 @media(max-width:900px){.bulk-metric-controls{grid-template-columns:repeat(2,minmax(180px,1fr))}.bulk-metric-controls button{width:100%}}
 @media(max-width:700px){.bulk-metric-controls{grid-template-columns:1fr}}
+
+/* Direct numeric editing for team metric columns. */
+.metric-creator-fields{display:grid;grid-template-columns:minmax(230px,1fr) 210px 250px;gap:12px;margin:18px 0}
+.metric-creator-fields label{display:grid;gap:7px;color:#41514d;font-size:14px;font-weight:800}
+.metric-creator-fields input,.metric-creator-fields select{min-height:45px;padding:9px 11px;border:1px solid #ccd9d3;border-radius:10px;background:#fff;color:#18322b;font:inherit}
+.inline-metric-cell{padding:6px 8px!important;min-width:96px}
+.inline-metric-input{width:100%;min-width:72px;padding:8px 9px;border:1px solid transparent;border-radius:8px;background:#f5f9f7;color:#18322b;font:800 15px/1.25 inherit;text-align:right;outline:none}
+.inline-metric-input:hover{border-color:#c5dad1;background:#fff}.inline-metric-input:focus{border-color:#16816f;background:#fff;box-shadow:0 0 0 3px rgba(22,129,111,.12)}.inline-metric-input:disabled{opacity:.58;cursor:wait}
+@media(max-width:760px){.metric-creator-fields{grid-template-columns:1fr}}

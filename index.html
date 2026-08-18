@@ -126,8 +126,8 @@
 
       <section id="recordsPanel" class="panel records-panel">
         <div class="panel-head">
-          <div><p class="eyebrow">ACTIVITY LOG</p><h2>業務軌跡</h2><p class="panel-description">向右滑動可查看全部指標；自訂欄位可直接重新命名或刪除</p></div>
-          <div class="records-tools"><span id="recordCount" class="record-count count-badge">0 筆</span><button id="resetColumnOrder" class="text-btn" type="button">還原欄位順序</button><button id="toggleRecordsFocus" class="secondary-btn" type="button" aria-pressed="false">全欄位模式</button></div>
+          <div><p class="eyebrow">ACTIVITY LOG</p><h2>業務軌跡</h2><p class="panel-description">向右滑動可查看全部指標；數字欄位可直接輸入並儲存，自訂欄位可重新命名或刪除</p></div>
+          <div class="records-tools"><span id="recordCount" class="record-count count-badge">0 筆</span><button id="openMetricCreatorButton" class="secondary-btn manager-only" type="button">＋ 新增欄位</button><button id="resetColumnOrder" class="text-btn" type="button">還原欄位順序</button><button id="toggleRecordsFocus" class="secondary-btn" type="button" aria-pressed="false">全欄位模式</button></div>
         </div>
         <div class="table-wrap records-table-wrap" tabindex="0" aria-label="業務軌跡資料表，可水平捲動">
           <table>
@@ -202,6 +202,20 @@
       <p id="bulkMetricMessage" class="form-message" aria-live="polite"></p>
       <div class="table-wrap bulk-metric-table"><table><thead><tr><th>業務人員</th><th>職級</th><th>指標資料</th></tr></thead><tbody id="bulkMetricBody"><tr><td colspan="3"><p class="empty-state">請先選擇或輸入指標名稱</p></td></tr></tbody></table></div>
       <div class="dialog-actions bulk-dialog-actions"><button id="deleteBulkMetricButton" class="secondary-btn danger-btn" type="button">清除全部人員此指標資料</button><span class="dialog-action-spacer"></span><button type="button" class="text-btn" data-close-bulk-dialog>取消</button><button id="saveBulkMetricButton" class="primary-btn" type="submit">同步儲存全部資料</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="metricCreatorDialog" class="entry-dialog metric-creator-dialog">
+    <form id="metricCreatorForm" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">NEW TEAM METRIC</p><h2>新增全員欄位</h2></div><button type="button" class="icon-btn" data-close-metric-creator aria-label="關閉">×</button></div>
+      <p class="directory-intro">欄位建立後會顯示於所有業務人員。數字欄位可在業務軌跡的表格中直接輸入，按 Enter 或移開游標即可儲存。</p>
+      <div class="metric-creator-fields">
+        <label>欄位名稱<input id="newMetricName" type="text" maxlength="80" autocomplete="off" placeholder="例：新板分行" required></label>
+        <label>欄位類型<select id="newMetricValueType"><option value="number">數字（可直接編輯）</option><option value="text">文字紀錄</option></select></label>
+        <label>儲存方式<select id="newMetricStorageMode"><option value="daily">依日期紀錄</option><option value="cumulative">累積（不受日期限制）</option></select></label>
+      </div>
+      <p id="metricCreatorMessage" class="form-message" aria-live="polite"></p>
+      <div class="dialog-actions"><span class="dialog-action-spacer"></span><button type="button" class="text-btn" data-close-metric-creator>取消</button><button class="primary-btn" type="submit">建立欄位</button></div>
     </form>
   </dialog>
 

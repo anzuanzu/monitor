@@ -115,8 +115,10 @@
     $('openPeopleButton').addEventListener('click', openPeopleDirectory);
     $('openBulkMetricButton').addEventListener('click', openBulkMetricEditor);
     $('openEntryButton').addEventListener('click', () => openEntry());
+    $('openMetricCreatorButton').addEventListener('click', openMetricCreator);
     $('entryForm').addEventListener('submit', saveEntry);
     $('peopleForm').addEventListener('submit', savePerson);
+    $('metricCreatorForm').addEventListener('submit', createMetricDefinition);
     $('bulkMetricForm').addEventListener('submit', saveBulkMetricValues);
     $('loadBulkMetricButton').addEventListener('click', loadBulkMetricValues);
     $('deleteBulkMetricButton').addEventListener('click', deleteBulkMetricValues);
@@ -131,12 +133,17 @@
     document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $('entryDialog').close()));
     document.querySelectorAll('[data-close-people-dialog]').forEach(button => button.addEventListener('click', () => $('peopleDialog').close()));
     document.querySelectorAll('[data-close-bulk-dialog]').forEach(button => button.addEventListener('click', () => $('bulkMetricDialog').close()));
+    document.querySelectorAll('[data-close-metric-creator]').forEach(button => button.addEventListener('click', () => $('metricCreatorDialog').close()));
     $('projectFields').addEventListener('click', event => { if (event.target.closest('.remove-project')) event.target.closest('.project-row').remove(); });
     $('recordsHead').addEventListener('click', handleCustomMetricHeaderAction);
     $('recordsHead').addEventListener('dragstart', handleColumnDragStart);
     $('recordsHead').addEventListener('dragover', handleColumnDragOver);
     $('recordsHead').addEventListener('drop', handleColumnDrop);
     $('recordsHead').addEventListener('dragend', clearColumnDragState);
+    $('recordsBody').addEventListener('change', saveInlineMetricValue);
+    $('recordsBody').addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target.matches('.inline-metric-input')) event.target.blur();
+    });
     $('entrySalesperson').addEventListener('change', handleSalespersonChange);
     $('peopleBody').addEventListener('click', handlePeopleDirectoryAction);
     document.addEventListener('keydown', event => {
@@ -384,7 +391,9 @@
     ];
     getCustomMetricNames().forEach(name => {
       const cumulative = isCumulativeMetric(name);
-      columns.push({ id: `custom:${name}`, label: cumulative ? `${name}（累積）` : name, metricName: name, widthClass: 'column-note', custom: true, render: row => noteCell(cumulative ? getCumulativeMetricValue(name, row.salesperson_id) : row.projects?.[name]) });
+      const definition = getMetricDefinition(name);
+      const valueType = definition?.value_type || 'text';
+      columns.push({ id: `custom:${name}`, label: cumulative ? `${name}（累積）` : name, metricName: name, widthClass: valueType === 'number' ? 'column-number' : 'column-note', custom: true, render: row => renderCustomMetricCell(row, name, cumulative, valueType, noteCell) });
     });
     columns.push({ id: 'actions', label: '操作', widthClass: 'column-actions', managerOnly: true, render: row => `<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td>` });
     return columns;
@@ -488,6 +497,12 @@
     const definition = getMetricDefinition(name);
     if (!definition || definition.storage_mode !== 'cumulative') return '';
     return cumulativeMetricValues.find(value => value.metric_id === definition.id && value.salesperson_id === salespersonId)?.value || '';
+  }
+
+  function renderCustomMetricCell(row, metricName, cumulative, valueType, noteCell) {
+    const value = cumulative ? getCumulativeMetricValue(metricName, row.salesperson_id) : row.projects?.[metricName];
+    if (valueType !== 'number' || !isManager()) return noteCell(value);
+    return `<td class="inline-metric-cell"><input class="inline-metric-input" type="number" step="any" inputmode="decimal" value="${escapeHtml(value ?? '')}" placeholder="—" data-metric-name="${escapeHtml(metricName)}" data-record-id="${row.id}" data-salesperson-id="${row.salesperson_id}" data-storage-mode="${cumulative ? 'cumulative' : 'daily'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${escapeHtml(metricName)}"></td>`;
   }
 
   function refreshImportMetricOptions(selected = 'auto') {
@@ -622,16 +637,84 @@
     $('deleteBulkMetricButton').textContent = cumulative ? '清除全部人員累積資料' : '清除當日全部人員資料';
   }
 
-  async function ensureMetricDefinition(metricName, storageMode) {
+  async function ensureMetricDefinition(metricName, storageMode, valueType = 'text') {
     const existing = getMetricDefinition(metricName);
     if (existing) {
       if (existing.storage_mode !== storageMode) throw new Error(`「${metricName}」已設定為${existing.storage_mode === 'cumulative' ? '累積指標' : '依日期紀錄'}，不能改變儲存方式。`);
       return existing;
     }
-    const { data, error } = await sb.from('custom_metric_definitions').insert({ name: metricName, storage_mode: storageMode, created_by: currentUser.id }).select().single();
+    const { data, error } = await sb.from('custom_metric_definitions').insert({ name: metricName, storage_mode: storageMode, value_type: valueType, created_by: currentUser.id }).select().single();
     if (error) throw error;
     metricDefinitions.push(data);
     return data;
+  }
+
+  function openMetricCreator() {
+    if (!isManager()) return;
+    $('metricCreatorForm').reset();
+    $('newMetricValueType').value = 'number';
+    $('newMetricStorageMode').value = 'daily';
+    setMessage('metricCreatorMessage');
+    $('metricCreatorDialog').showModal();
+    $('newMetricName').focus();
+  }
+
+  async function createMetricDefinition(event) {
+    event.preventDefault(); if (!isManager()) return;
+    const name = $('newMetricName').value.trim();
+    const valueType = $('newMetricValueType').value === 'number' ? 'number' : 'text';
+    const storageMode = $('newMetricStorageMode').value === 'cumulative' ? 'cumulative' : 'daily';
+    if (!name) return setMessage('metricCreatorMessage', '請輸入欄位名稱。');
+    if (getMetricDefinition(name)) return setMessage('metricCreatorMessage', `「${name}」已經存在。`);
+    try {
+      await ensureMetricDefinition(name, storageMode, valueType);
+      $('metricCreatorDialog').close();
+      await loadDashboardData();
+      showToast(`已新增全員欄位「${name}」。${valueType === 'number' ? '可直接在表格輸入數字。' : ''}`);
+    } catch (error) { setMessage('metricCreatorMessage', `新增欄位失敗：${error.message || error}`); }
+  }
+
+  async function saveInlineMetricValue(event) {
+    const input = event.target.closest('.inline-metric-input');
+    if (!input || !isManager()) return;
+    const metricName = input.dataset.metricName;
+    const storageMode = input.dataset.storageMode;
+    const value = input.value.trim();
+    if (value && !Number.isFinite(Number(value))) return showToast('請輸入有效數字。', 'error');
+    input.disabled = true;
+    try {
+      if (storageMode === 'cumulative') {
+        const definition = getMetricDefinition(metricName);
+        if (!definition) throw new Error('找不到欄位定義。');
+        const personId = input.dataset.salespersonId;
+        if (value) {
+          const { error } = await sb.from('cumulative_metric_values').upsert({ metric_id: definition.id, salesperson_id: personId, value, updated_by: currentUser.id }, { onConflict: 'metric_id,salesperson_id' });
+          if (error) throw error;
+          const existing = cumulativeMetricValues.find(item => item.metric_id === definition.id && item.salesperson_id === personId);
+          if (existing) existing.value = value;
+          else cumulativeMetricValues.push({ metric_id: definition.id, salesperson_id: personId, value });
+        } else {
+          const { error } = await sb.from('cumulative_metric_values').delete().eq('metric_id', definition.id).eq('salesperson_id', personId);
+          if (error) throw error;
+          cumulativeMetricValues = cumulativeMetricValues.filter(item => item.metric_id !== definition.id || item.salesperson_id !== personId);
+        }
+        renderRecords();
+      } else {
+        const row = records.find(item => item.id === input.dataset.recordId);
+        if (!row) throw new Error('找不到此筆紀錄。');
+        const projects = { ...(row.projects || {}) };
+        if (value) projects[metricName] = value;
+        else delete projects[metricName];
+        const { error } = await sb.from('performance_entries').update({ projects, updated_by: currentUser.id }).eq('id', row.id);
+        if (error) throw error;
+        row.projects = projects;
+      }
+      renderProgressSummary();
+      showToast(`「${metricName}」已儲存。`);
+    } catch (error) {
+      showToast(`儲存失敗：${error.message || error}`, 'error');
+      renderRecords();
+    } finally { input.disabled = false; }
   }
 
   async function openBulkMetricEditor() {
