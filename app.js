@@ -25,6 +25,7 @@
   let dashboardLoadId = 0;
   let columnOrder = [];
   let draggedColumnId = null;
+  const inlineSaveTimers = new WeakMap();
 
   const today = () => new Date().toISOString().slice(0, 10);
   const number = value => Number(value || 0);
@@ -141,6 +142,7 @@
     $('recordsHead').addEventListener('drop', handleColumnDrop);
     $('recordsHead').addEventListener('dragend', clearColumnDragState);
     $('recordsBody').addEventListener('change', saveInlineMetricValue);
+    $('recordsBody').addEventListener('input', scheduleInlineMetricSave);
     $('recordsBody').addEventListener('keydown', event => {
       if (event.key === 'Enter' && event.target.matches('.inline-metric-input')) event.target.blur();
     });
@@ -376,18 +378,19 @@
 
   function getColumnDefinitions() {
     const noteCell = value => `<td class="note-cell">${hasText(value) ? escapeHtml(value) : '—'}</td>`;
+    const numericCell = (row, metricKey, options = {}) => renderStandardNumberCell(row, metricKey, options);
     const columns = [
       { id: 'view_date', label: '檢視日期', widthClass: 'column-date', render: row => `<td>${humanDate(row.view_date)}</td>` },
       { id: 'salesperson', label: '業務人員', widthClass: 'column-person', render: row => `<td class="name-cell">${escapeHtml(row.salespeople?.name || '—')}</td>` },
       { id: 'job_title', label: '職級', widthClass: 'column-title', render: row => `<td>${escapeHtml(row.job_title || row.salespeople?.job_title || '—')}</td>` },
-      { id: 'valid_calls', label: '有效電訪', widthClass: 'column-number', render: row => `<td>${number(row.valid_calls)}</td>` },
-      { id: 'valid_meetings', label: '有效面訪', widthClass: 'column-number', render: row => `<td>${number(row.valid_meetings)}</td>` },
+      { id: 'valid_calls', label: '有效電訪', widthClass: 'column-number', render: row => numericCell(row, 'valid_calls') },
+      { id: 'valid_meetings', label: '有效面訪', widthClass: 'column-number', render: row => numericCell(row, 'valid_meetings') },
       { id: 'abay_progress', label: '亞灣進度紀錄', widthClass: 'column-note', render: row => noteCell(row.abay_progress) },
       { id: 'svip_progress', label: 'SVIP 升等進度', widthClass: 'column-note', render: row => noteCell(row.svip_progress) },
       { id: 'vip_progress', label: 'VIP 升等進度', widthClass: 'column-note', render: row => noteCell(row.vip_progress) },
       { id: 'hvip_progress', label: 'HVIP 進度', widthClass: 'column-note', render: row => noteCell(row.hvip_progress) },
       { id: 'call_progress', label: '電訪進度', widthClass: 'column-note', render: row => noteCell(row.call_progress) },
-      { id: 'coverage_rate', label: '覆蓋率紀錄', widthClass: 'column-note', render: row => noteCell(row.coverage_rate) }
+      { id: 'coverage_rate', label: '覆蓋率紀錄', widthClass: 'column-number', render: row => numericCell(row, 'coverage_rate', { percent: true }) }
     ];
     getCustomMetricNames().forEach(name => {
       const cumulative = isCumulativeMetric(name);
@@ -502,7 +505,15 @@
   function renderCustomMetricCell(row, metricName, cumulative, valueType, noteCell) {
     const value = cumulative ? getCumulativeMetricValue(metricName, row.salesperson_id) : row.projects?.[metricName];
     if (valueType !== 'number' || !isManager()) return noteCell(value);
-    return `<td class="inline-metric-cell"><input class="inline-metric-input" type="number" step="any" inputmode="decimal" value="${escapeHtml(value ?? '')}" placeholder="—" data-metric-name="${escapeHtml(metricName)}" data-record-id="${row.id}" data-salesperson-id="${row.salesperson_id}" data-storage-mode="${cumulative ? 'cumulative' : 'daily'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${escapeHtml(metricName)}"></td>`;
+    return `<td class="inline-metric-cell"><input class="inline-metric-input" type="number" step="any" inputmode="decimal" value="${escapeHtml(value ?? '')}" placeholder="—" data-saved-value="${escapeHtml(value ?? '')}" data-metric-name="${escapeHtml(metricName)}" data-record-id="${row.id}" data-salesperson-id="${row.salesperson_id}" data-storage-mode="${cumulative ? 'cumulative' : 'daily'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${escapeHtml(metricName)}"></td>`;
+  }
+
+  function renderStandardNumberCell(row, metricKey, options = {}) {
+    const rawValue = row[metricKey] ?? '';
+    const value = options.percent ? String(rawValue).replace(/%\s*$/, '').trim() : rawValue;
+    if (!isManager()) return `<td>${options.percent && hasText(rawValue) ? escapeHtml(formatCoverage(rawValue)) : number(rawValue)}</td>`;
+    const suffix = options.percent ? '<span class="inline-metric-suffix">%</span>' : '';
+    return `<td class="inline-metric-cell${options.percent ? ' has-suffix' : ''}"><input class="inline-metric-input" type="number" min="0" step="any" inputmode="decimal" value="${escapeHtml(value)}" data-saved-value="${escapeHtml(value)}" data-standard-key="${metricKey}" data-record-id="${row.id}" data-percent="${options.percent ? 'true' : 'false'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${metricLabels[metricKey] || metricKey}">${suffix}</td>`;
   }
 
   function refreshImportMetricOptions(selected = 'auto') {
@@ -674,15 +685,41 @@
     } catch (error) { setMessage('metricCreatorMessage', `新增欄位失敗：${error.message || error}`); }
   }
 
+  function scheduleInlineMetricSave(event) {
+    const input = event.target.closest('.inline-metric-input');
+    if (!input || !isManager()) return;
+    const pending = inlineSaveTimers.get(input);
+    if (pending) window.clearTimeout(pending);
+    inlineSaveTimers.set(input, window.setTimeout(() => saveInlineMetricValue({ target: input }), 850));
+  }
+
   async function saveInlineMetricValue(event) {
     const input = event.target.closest('.inline-metric-input');
     if (!input || !isManager()) return;
-    const metricName = input.dataset.metricName;
-    const storageMode = input.dataset.storageMode;
+    const pending = inlineSaveTimers.get(input);
+    if (pending) { window.clearTimeout(pending); inlineSaveTimers.delete(input); }
     const value = input.value.trim();
+    if (value === (input.dataset.savedValue || '')) return;
     if (value && !Number.isFinite(Number(value))) return showToast('請輸入有效數字。', 'error');
+    if (input.dataset.saving === 'true') return;
+    input.dataset.saving = 'true';
     input.disabled = true;
     try {
+      if (input.dataset.standardKey) {
+        const row = records.find(item => item.id === input.dataset.recordId);
+        if (!row) throw new Error('找不到此筆紀錄。');
+        const standardKey = input.dataset.standardKey;
+        const savedValue = input.dataset.percent === 'true' ? formatCoverage(value) : Math.max(0, number(value));
+        const { error } = await sb.from('performance_entries').update({ [standardKey]: savedValue, updated_by: currentUser.id }).eq('id', row.id);
+        if (error) throw error;
+        row[standardKey] = savedValue;
+        input.dataset.savedValue = value;
+        renderDashboard();
+        showToast(`「${metricLabels[standardKey]}」已儲存。`);
+        return;
+      }
+      const metricName = input.dataset.metricName;
+      const storageMode = input.dataset.storageMode;
       if (storageMode === 'cumulative') {
         const definition = getMetricDefinition(metricName);
         if (!definition) throw new Error('找不到欄位定義。');
@@ -709,12 +746,13 @@
         if (error) throw error;
         row.projects = projects;
       }
+      input.dataset.savedValue = value;
       renderProgressSummary();
       showToast(`「${metricName}」已儲存。`);
     } catch (error) {
       showToast(`儲存失敗：${error.message || error}`, 'error');
       renderRecords();
-    } finally { input.disabled = false; }
+    } finally { input.disabled = false; delete input.dataset.saving; }
   }
 
   async function openBulkMetricEditor() {
