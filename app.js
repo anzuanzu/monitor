@@ -523,8 +523,10 @@
 
   function renderCustomMetricCell(row, metricName, cumulative, valueType, noteCell) {
     const value = cumulative ? getCumulativeMetricValue(metricName, row.salesperson_id) : row.projects?.[metricName];
-    if (valueType !== 'number' || !isManager()) return noteCell(value);
-    return `<td class="inline-metric-cell"><input class="inline-editable inline-metric-input" type="number" step="any" inputmode="decimal" value="${escapeHtml(value ?? '')}" placeholder="—" data-value-type="number" data-saved-value="${escapeHtml(value ?? '')}" data-metric-name="${escapeHtml(metricName)}" data-record-id="${row.id || ''}" data-salesperson-id="${row.salesperson_id}" data-view-date="${row.view_date}" data-job-title="${escapeHtml(row.job_title || row.salespeople?.job_title || '')}" data-storage-mode="${cumulative ? 'cumulative' : 'daily'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${escapeHtml(metricName)}"></td>`;
+    if (!isManager()) return noteCell(value);
+    const metadata = `data-saved-value="${escapeHtml(value ?? '')}" data-metric-name="${escapeHtml(metricName)}" data-record-id="${row.id || ''}" data-salesperson-id="${row.salesperson_id}" data-view-date="${row.view_date}" data-job-title="${escapeHtml(row.job_title || row.salespeople?.job_title || '')}" data-storage-mode="${cumulative ? 'cumulative' : 'daily'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${escapeHtml(metricName)}"`;
+    if (valueType === 'number') return `<td class="inline-metric-cell"><input class="inline-editable inline-metric-input" type="number" step="any" inputmode="decimal" value="${escapeHtml(value ?? '')}" placeholder="—" data-value-type="number" ${metadata}></td>`;
+    return `<td class="inline-note-cell"><textarea class="inline-editable inline-note-input" rows="2" placeholder="輸入${escapeHtml(metricName)}" data-value-type="text" ${metadata}>${escapeHtml(value ?? '')}</textarea></td>`;
   }
 
   function renderStandardNumberCell(row, metricKey, options = {}) {
