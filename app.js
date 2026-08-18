@@ -70,13 +70,14 @@
     $('newPasswordInput').focus();
   }
 
-  function configureDateFilters(days = 30) {
+  function configureDateFilters(days = 1) {
     const to = today(); const from = new Date(); from.setDate(from.getDate() - (days - 1));
     $('toDate').value = to; $('fromDate').value = from.toISOString().slice(0, 10);
   }
 
   async function init() {
     configureDateFilters();
+    setActiveRangeChip(1);
     bindEvents();
     if (!configured) {
       showSetup('尚未連接 Supabase。請依 README 建立雲端專案、套用權限腳本，並填寫 config.js。');
@@ -297,10 +298,10 @@
   }
 
   function clearFilters() {
-    configureDateFilters(30);
+    configureDateFilters(1);
     $('salespersonFilter').value = '';
     $('recordSearch').value = '';
-    setActiveRangeChip(30);
+    setActiveRangeChip(1);
     loadDashboardData();
   }
 
