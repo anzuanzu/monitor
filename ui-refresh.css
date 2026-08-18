@@ -250,3 +250,9 @@ body.records-focus-active{overflow:hidden}
 .records-tools .text-btn{font-size:13px;white-space:nowrap}
 .records-table-wrap th:first-child,.records-table-wrap td:first-child,.records-table-wrap th:nth-child(2),.records-table-wrap td:nth-child(2){position:static;box-shadow:none}
 @media(max-width:680px){.column-drag-handle{font-size:15px}.records-tools .text-btn{padding-left:7px;padding-right:7px}}
+
+/* All-person metrics can be daily or cumulative. */
+.bulk-metric-controls{grid-template-columns:160px minmax(220px,1fr) 190px auto}
+.bulk-metric-controls select:disabled{opacity:.75;cursor:not-allowed;background:#f1f4f2}
+@media(max-width:900px){.bulk-metric-controls{grid-template-columns:repeat(2,minmax(180px,1fr))}.bulk-metric-controls button{width:100%}}
+@media(max-width:700px){.bulk-metric-controls{grid-template-columns:1fr}}

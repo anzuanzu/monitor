@@ -76,7 +76,7 @@
         <div class="head-actions">
           <button id="refreshButton" class="secondary-btn" title="重新讀取雲端資料"><span class="button-icon">↻</span>重新整理</button>
           <button id="openPeopleButton" class="secondary-btn manager-only"><span class="button-icon">◎</span>人員名單</button>
-          <button id="openBulkMetricButton" class="secondary-btn manager-only"><span class="button-icon">≡</span>批次編輯</button>
+          <button id="openBulkMetricButton" class="secondary-btn manager-only"><span class="button-icon">≡</span>全員指標</button>
           <button id="openEntryButton" class="primary-btn manager-only">新增追蹤紀錄 <span>＋</span></button>
         </div>
       </div>
@@ -159,7 +159,7 @@
         <label class="text-record">覆蓋率紀錄<textarea id="coverageRate" rows="3" placeholder="例：本週目標客群已覆蓋 18/25 位"></textarea></label>
       </div>
       <section class="project-section">
-        <div class="section-title"><div><h3>自訂指標紀錄</h3><p>可新增任何指標，並以文字留下完整紀錄；Gemini 找到的非預設指標也會自動建立在此處。</p></div><button id="addProjectButton" class="secondary-btn" type="button">＋ 新增指標</button></div>
+        <div class="section-title"><div><h3>當日補充紀錄</h3><p>新增的自訂欄位會成為全員適用的「依日期紀錄」指標；若要一次填寫全部人員，請使用上方「全員指標」。</p></div><button id="addProjectButton" class="secondary-btn" type="button">＋ 新增全員當日指標</button></div>
         <div id="projectFields" class="project-fields"></div>
       </section>
       <section class="ai-section">
@@ -191,16 +191,17 @@
 
   <dialog id="bulkMetricDialog" class="entry-dialog bulk-metric-dialog">
     <form id="bulkMetricForm" method="dialog">
-      <div class="dialog-head"><div><p class="eyebrow">BULK METRIC EDITOR</p><h2>同步編輯所有業務</h2></div><button type="button" class="icon-btn" data-close-bulk-dialog aria-label="關閉">×</button></div>
-      <p class="directory-intro">選擇日期與自訂績效指標後，系統會列出全部啟用中的業務人員。可一次填寫、修改或清除每個人的資料，再同步儲存。</p>
+      <div class="dialog-head"><div><p class="eyebrow">TEAM METRIC MANAGER</p><h2>全員指標與批次編輯</h2></div><button type="button" class="icon-btn" data-close-bulk-dialog aria-label="關閉">×</button></div>
+      <p class="directory-intro">新增的指標會對全部啟用中的業務人員適用。可選擇「依日期紀錄」或「累積指標」；累積指標不受特定日期限制，會持續保留每位人員的最新資料。</p>
       <div class="bulk-metric-controls">
-        <label>檢視日期<input id="bulkMetricDate" type="date" required></label>
+        <label id="bulkMetricDateWrap">檢視日期<input id="bulkMetricDate" type="date" required></label>
         <label>自訂績效指標<input id="bulkMetricName" type="text" list="bulkMetricNameList" maxlength="80" autocomplete="off" placeholder="選擇既有指標或輸入新名稱" required><datalist id="bulkMetricNameList"></datalist></label>
+        <label>儲存方式<select id="bulkMetricMode"><option value="daily">依日期紀錄</option><option value="cumulative">累積（不受日期限制）</option></select></label>
         <button id="loadBulkMetricButton" class="secondary-btn" type="button">載入全部業務</button>
       </div>
       <p id="bulkMetricMessage" class="form-message" aria-live="polite"></p>
       <div class="table-wrap bulk-metric-table"><table><thead><tr><th>業務人員</th><th>職級</th><th>指標資料</th></tr></thead><tbody id="bulkMetricBody"><tr><td colspan="3"><p class="empty-state">請先選擇或輸入指標名稱</p></td></tr></tbody></table></div>
-      <div class="dialog-actions bulk-dialog-actions"><button id="deleteBulkMetricButton" class="secondary-btn danger-btn" type="button">刪除當日全部業務此指標</button><span class="dialog-action-spacer"></span><button type="button" class="text-btn" data-close-bulk-dialog>取消</button><button id="saveBulkMetricButton" class="primary-btn" type="submit">同步儲存全部資料</button></div>
+      <div class="dialog-actions bulk-dialog-actions"><button id="deleteBulkMetricButton" class="secondary-btn danger-btn" type="button">清除全部人員此指標資料</button><span class="dialog-action-spacer"></span><button type="button" class="text-btn" data-close-bulk-dialog>取消</button><button id="saveBulkMetricButton" class="primary-btn" type="submit">同步儲存全部資料</button></div>
     </form>
   </dialog>
 

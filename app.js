@@ -15,6 +15,8 @@
   let role = 'viewer';
   let salespeople = [];
   let records = [];
+  let metricDefinitions = [];
+  let cumulativeMetricValues = [];
   let chart = null;
   let selectedImportFile = null;
   let bulkMetricLoadedKey = '';
@@ -118,6 +120,8 @@
     $('bulkMetricForm').addEventListener('submit', saveBulkMetricValues);
     $('loadBulkMetricButton').addEventListener('click', loadBulkMetricValues);
     $('deleteBulkMetricButton').addEventListener('click', deleteBulkMetricValues);
+    $('bulkMetricName').addEventListener('input', handleBulkMetricConfigurationChange);
+    $('bulkMetricMode').addEventListener('change', handleBulkMetricConfigurationChange);
     $('addProjectButton').addEventListener('click', () => addProjectField());
     $('importFile').addEventListener('change', handleLocalFile);
     $('aiExtractButton').addEventListener('click', extractWithGemini);
@@ -189,7 +193,7 @@
 
   async function signOut() {
     await sb.auth.signOut();
-    currentUser = null; records = []; salespeople = [];
+    currentUser = null; records = []; salespeople = []; metricDefinitions = []; cumulativeMetricValues = [];
     columnOrder = [];
     document.body.classList.remove('dashboard-active', 'records-focus-active');
     $('dashboardView').classList.add('hidden'); $('passwordResetView').classList.add('hidden'); $('authView').classList.remove('hidden');
@@ -236,10 +240,22 @@
     const loadingButtons = [$('refreshButton'), $('applyFilterButton')].filter(Boolean);
     loadingButtons.forEach(button => { button.disabled = true; button.classList.add('is-loading'); button.setAttribute('aria-busy', 'true'); });
     try {
-      const peopleResponse = await sb.from('salespeople').select('*').eq('is_active', true).order('name');
+      const [peopleResponse, definitionsResponse] = await Promise.all([
+        sb.from('salespeople').select('*').eq('is_active', true).order('name'),
+        sb.from('custom_metric_definitions').select('*').order('created_at')
+      ]);
       if (peopleResponse.error) throw peopleResponse.error;
+      if (definitionsResponse.error) throw definitionsResponse.error;
       if (loadId !== dashboardLoadId) return;
       salespeople = peopleResponse.data || [];
+      metricDefinitions = definitionsResponse.data || [];
+      const cumulativeIds = metricDefinitions.filter(definition => definition.storage_mode === 'cumulative').map(definition => definition.id);
+      if (cumulativeIds.length) {
+        const valuesResponse = await sb.from('cumulative_metric_values').select('metric_id,salesperson_id,value').in('metric_id', cumulativeIds);
+        if (valuesResponse.error) throw valuesResponse.error;
+        if (loadId !== dashboardLoadId) return;
+        cumulativeMetricValues = valuesResponse.data || [];
+      } else cumulativeMetricValues = [];
       let query = sb.from('performance_entries').select('*, salespeople(id,name,job_title)').gte('view_date', from).lte('view_date', to).order('view_date', { ascending: false });
       if (salespersonId) query = query.eq('salesperson_id', salespersonId);
       const response = await query;
@@ -366,7 +382,10 @@
       { id: 'call_progress', label: '電訪進度', widthClass: 'column-note', render: row => noteCell(row.call_progress) },
       { id: 'coverage_rate', label: '覆蓋率紀錄', widthClass: 'column-note', render: row => noteCell(row.coverage_rate) }
     ];
-    getCustomMetricNames().forEach(name => columns.push({ id: `custom:${name}`, label: name, widthClass: 'column-note', custom: true, render: row => noteCell(row.projects?.[name]) }));
+    getCustomMetricNames().forEach(name => {
+      const cumulative = isCumulativeMetric(name);
+      columns.push({ id: `custom:${name}`, label: cumulative ? `${name}（累積）` : name, metricName: name, widthClass: 'column-note', custom: true, render: row => noteCell(cumulative ? getCumulativeMetricValue(name, row.salesperson_id) : row.projects?.[name]) });
+    });
     columns.push({ id: 'actions', label: '操作', widthClass: 'column-actions', managerOnly: true, render: row => `<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td>` });
     return columns;
   }
@@ -390,7 +409,7 @@
   }
 
   function renderColumnHeader(column) {
-    const customActions = column.custom ? `<span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}"><button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(column.label)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(column.label)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(column.label)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(column.label)}">×</button></span>` : '';
+    const customActions = column.custom ? `<span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}"><button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(column.metricName)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(column.metricName)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(column.metricName)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(column.metricName)}">×</button></span>` : '';
     return `<th class="${column.custom ? 'custom-metric-head ' : ''}${column.managerOnly ? 'manager-only ' : ''}${column.widthClass || ''} reorderable-column" data-column-id="${escapeHtml(column.id)}" draggable="true" title="拖曳可調整欄位順序" aria-hidden="${column.managerOnly ? String(!isManager()) : 'false'}"><div class="column-header-content"><span class="column-drag-handle" aria-hidden="true">⋮⋮</span><span>${escapeHtml(column.label)}</span>${customActions}</div></th>`;
   }
 
@@ -450,8 +469,25 @@
   }
 
   function getCustomMetricNames() {
-    return [...new Set(records.flatMap(row => Object.keys(row.projects || {})).map(name => String(name).trim()).filter(Boolean))]
+    return [...new Set([
+      ...metricDefinitions.map(definition => String(definition.name || '').trim()),
+      ...records.flatMap(row => Object.keys(row.projects || {}).map(name => String(name).trim()))
+    ].filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  }
+
+  function getMetricDefinition(name) {
+    return metricDefinitions.find(definition => definition.name === name) || null;
+  }
+
+  function isCumulativeMetric(name) {
+    return getMetricDefinition(name)?.storage_mode === 'cumulative';
+  }
+
+  function getCumulativeMetricValue(name, salespersonId) {
+    const definition = getMetricDefinition(name);
+    if (!definition || definition.storage_mode !== 'cumulative') return '';
+    return cumulativeMetricValues.find(value => value.metric_id === definition.id && value.salesperson_id === salespersonId)?.value || '';
   }
 
   function refreshImportMetricOptions(selected = 'auto') {
@@ -459,7 +495,7 @@
     const previous = selected || select.value || 'auto';
     select.replaceChildren(new Option('自動判斷檔案中的指標', 'auto'));
     importMetricKeys.forEach(key => select.add(new Option(metricLabels[key], `standard:${key}`)));
-    getCustomMetricNames().forEach(name => select.add(new Option(name, `custom:${name}`)));
+    getCustomMetricNames().filter(name => !isCumulativeMetric(name)).forEach(name => select.add(new Option(name, `custom:${name}`)));
     select.add(new Option('＋ 建立新的自訂績效指標', 'new'));
     select.value = [...select.options].some(option => option.value === previous) ? previous : 'auto';
     handleImportMetricChange();
@@ -569,6 +605,35 @@
     }));
   }
 
+  function getBulkMetricMode(metricName = $('bulkMetricName').value.trim()) {
+    return getMetricDefinition(metricName)?.storage_mode || $('bulkMetricMode').value || 'daily';
+  }
+
+  function handleBulkMetricConfigurationChange() {
+    const definition = getMetricDefinition($('bulkMetricName').value.trim());
+    if (definition) {
+      $('bulkMetricMode').value = definition.storage_mode;
+      $('bulkMetricMode').disabled = true;
+    } else $('bulkMetricMode').disabled = false;
+    const cumulative = getBulkMetricMode() === 'cumulative';
+    $('bulkMetricDateWrap').classList.toggle('hidden', cumulative);
+    $('bulkMetricDate').disabled = cumulative;
+    $('bulkMetricDate').required = !cumulative;
+    $('deleteBulkMetricButton').textContent = cumulative ? '清除全部人員累積資料' : '清除當日全部人員資料';
+  }
+
+  async function ensureMetricDefinition(metricName, storageMode) {
+    const existing = getMetricDefinition(metricName);
+    if (existing) {
+      if (existing.storage_mode !== storageMode) throw new Error(`「${metricName}」已設定為${existing.storage_mode === 'cumulative' ? '累積指標' : '依日期紀錄'}，不能改變儲存方式。`);
+      return existing;
+    }
+    const { data, error } = await sb.from('custom_metric_definitions').insert({ name: metricName, storage_mode: storageMode, created_by: currentUser.id }).select().single();
+    if (error) throw error;
+    metricDefinitions.push(data);
+    return data;
+  }
+
   async function openBulkMetricEditor() {
     if (!isManager()) return;
     if (!salespeople.length) return openPeopleDirectory();
@@ -576,7 +641,8 @@
     bulkMetricLoadedKey = '';
     populateBulkMetricNames();
     const existingNames = getCustomMetricNames();
-    $('bulkMetricName').value = existingNames[0] || '';
+    $('bulkMetricName').value = metricDefinitions[0]?.name || existingNames[0] || '';
+    handleBulkMetricConfigurationChange();
     $('bulkMetricBody').innerHTML = '<tr><td colspan="3"><p class="empty-state">輸入指標名稱後載入全部業務</p></td></tr>';
     setMessage('bulkMetricMessage');
     $('bulkMetricDialog').showModal();
@@ -587,15 +653,29 @@
     if (!isManager()) return;
     const viewDate = $('bulkMetricDate').value;
     const metricName = $('bulkMetricName').value.trim();
-    if (!viewDate) return setMessage('bulkMetricMessage', '請選擇檢視日期。');
+    const storageMode = getBulkMetricMode(metricName);
+    if (storageMode === 'daily' && !viewDate) return setMessage('bulkMetricMessage', '請選擇檢視日期。');
     if (!metricName) return setMessage('bulkMetricMessage', '請選擇既有指標或輸入新的指標名稱。');
+    handleBulkMetricConfigurationChange();
     setMessage('bulkMetricMessage', '正在載入全部業務資料…', false);
     const personIds = salespeople.map(person => person.id);
+    if (storageMode === 'cumulative') {
+      const definition = getMetricDefinition(metricName);
+      let existingByPerson = new Map();
+      if (definition) {
+        const { data, error } = await sb.from('cumulative_metric_values').select('salesperson_id,value').eq('metric_id', definition.id).in('salesperson_id', personIds);
+        if (error) return setMessage('bulkMetricMessage', `無法載入資料：${error.message}`);
+        existingByPerson = new Map((data || []).map(row => [row.salesperson_id, row]));
+      }
+      $('bulkMetricBody').innerHTML = salespeople.map(person => `<tr><td class="name-cell">${escapeHtml(person.name)}</td><td>${escapeHtml(person.job_title || '—')}</td><td><textarea class="bulk-metric-value" data-person-id="${person.id}" rows="2" placeholder="輸入「${escapeHtml(metricName)}」累積資料">${escapeHtml(existingByPerson.get(person.id)?.value || '')}</textarea></td></tr>`).join('');
+      bulkMetricLoadedKey = `cumulative\u0000${metricName}`;
+      return setMessage('bulkMetricMessage', `已載入 ${salespeople.length} 位業務人員的「${metricName}」累積指標。`, false);
+    }
     const { data, error } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate).in('salesperson_id', personIds);
     if (error) return setMessage('bulkMetricMessage', `無法載入資料：${error.message}`);
     const existingByPerson = new Map((data || []).map(row => [row.salesperson_id, row]));
     $('bulkMetricBody').innerHTML = salespeople.map(person => `<tr><td class="name-cell">${escapeHtml(person.name)}</td><td>${escapeHtml(person.job_title || '—')}</td><td><textarea class="bulk-metric-value" data-person-id="${person.id}" rows="2" placeholder="輸入「${escapeHtml(metricName)}」資料">${escapeHtml(existingByPerson.get(person.id)?.projects?.[metricName] || '')}</textarea></td></tr>`).join('');
-    bulkMetricLoadedKey = `${viewDate}\u0000${metricName}`;
+    bulkMetricLoadedKey = `daily\u0000${viewDate}\u0000${metricName}`;
     setMessage('bulkMetricMessage', `已載入 ${salespeople.length} 位業務人員，可直接同步編輯「${metricName}」。`, false);
   }
 
@@ -603,11 +683,38 @@
     event.preventDefault(); if (!isManager()) return;
     const viewDate = $('bulkMetricDate').value;
     const metricName = $('bulkMetricName').value.trim();
+    const storageMode = getBulkMetricMode(metricName);
     const inputs = [...$('bulkMetricBody').querySelectorAll('.bulk-metric-value')];
-    if (!viewDate || !metricName) return setMessage('bulkMetricMessage', '請先選擇日期與指標名稱。');
+    if ((storageMode === 'daily' && !viewDate) || !metricName) return setMessage('bulkMetricMessage', '請先選擇日期與指標名稱。');
     if (!inputs.length) return setMessage('bulkMetricMessage', '請先載入全部業務資料。');
-    if (bulkMetricLoadedKey !== `${viewDate}\u0000${metricName}`) return setMessage('bulkMetricMessage', '日期或指標名稱已變更，請先重新載入全部業務。');
+    const expectedLoadedKey = storageMode === 'cumulative' ? `cumulative\u0000${metricName}` : `daily\u0000${viewDate}\u0000${metricName}`;
+    if (bulkMetricLoadedKey !== expectedLoadedKey) return setMessage('bulkMetricMessage', '日期、指標或儲存方式已變更，請先重新載入全部業務。');
     setMessage('bulkMetricMessage', '正在同步儲存…', false);
+    let definition;
+    try { definition = await ensureMetricDefinition(metricName, storageMode); } catch (error) { return setMessage('bulkMetricMessage', `無法建立指標：${error.message || error}`); }
+    if (storageMode === 'cumulative') {
+      const personIds = inputs.map(input => input.dataset.personId);
+      const { data, error: loadError } = await sb.from('cumulative_metric_values').select('salesperson_id,value').eq('metric_id', definition.id).in('salesperson_id', personIds);
+      if (loadError) return setMessage('bulkMetricMessage', `無法讀取既有資料：${loadError.message}`);
+      const existingByPerson = new Map((data || []).map(row => [row.salesperson_id, row]));
+      const payloads = []; const removeIds = [];
+      inputs.forEach(input => {
+        const value = input.value.trim();
+        if (value) payloads.push({ metric_id: definition.id, salesperson_id: input.dataset.personId, value, updated_by: currentUser.id });
+        else if (existingByPerson.has(input.dataset.personId)) removeIds.push(input.dataset.personId);
+      });
+      if (payloads.length) {
+        const { error } = await sb.from('cumulative_metric_values').upsert(payloads, { onConflict: 'metric_id,salesperson_id' });
+        if (error) return setMessage('bulkMetricMessage', `同步儲存失敗：${error.message}`);
+      }
+      if (removeIds.length) {
+        const { error } = await sb.from('cumulative_metric_values').delete().eq('metric_id', definition.id).in('salesperson_id', removeIds);
+        if (error) return setMessage('bulkMetricMessage', `清除空白資料失敗：${error.message}`);
+      }
+      $('bulkMetricDialog').close();
+      await loadDashboardData();
+      return showToast(`「${metricName}」已套用至全部人員；已更新 ${payloads.length} 位人員的累積資料。`);
+    }
     const personIds = inputs.map(input => input.dataset.personId);
     const { data, error: loadError } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate).in('salesperson_id', personIds);
     if (loadError) return setMessage('bulkMetricMessage', `無法讀取既有資料：${loadError.message}`);
@@ -628,21 +735,34 @@
       if (!existing) Object.assign(payload, { job_title: person.job_title || '', created_by: currentUser.id });
       payloads.push(payload);
     });
-    if (!payloads.length) return setMessage('bulkMetricMessage', '沒有需要儲存的資料。');
-    const { error } = await sb.from('performance_entries').upsert(payloads, { onConflict: 'view_date,salesperson_id' });
-    if (error) return setMessage('bulkMetricMessage', `同步儲存失敗：${error.message}`);
+    if (payloads.length) {
+      const { error } = await sb.from('performance_entries').upsert(payloads, { onConflict: 'view_date,salesperson_id' });
+      if (error) return setMessage('bulkMetricMessage', `同步儲存失敗：${error.message}`);
+    }
     $('bulkMetricDialog').close();
     await loadDashboardData();
-    showToast(`已同步更新 ${payloads.length} 位業務人員的「${metricName}」。`);
+    showToast(`「${metricName}」已套用至全部人員；已更新 ${payloads.length} 位人員的當日資料。`);
   }
 
   async function deleteBulkMetricValues() {
     if (!isManager()) return;
     const viewDate = $('bulkMetricDate').value;
     const metricName = $('bulkMetricName').value.trim();
-    if (!viewDate || !metricName) return setMessage('bulkMetricMessage', '請先選擇日期與指標名稱。');
-    if (!window.confirm(`確定要刪除 ${humanDate(viewDate)} 全部業務人員的「${metricName}」嗎？其他指標與績效紀錄會保留。`)) return;
+    const storageMode = getBulkMetricMode(metricName);
+    if ((storageMode === 'daily' && !viewDate) || !metricName) return setMessage('bulkMetricMessage', '請先選擇日期與指標名稱。');
+    const periodText = storageMode === 'cumulative' ? '全部人員的累積資料' : `${humanDate(viewDate)} 全部業務人員的資料`;
+    if (!window.confirm(`確定要清除 ${periodText}「${metricName}」嗎？指標本身與其他績效紀錄會保留。`)) return;
     setMessage('bulkMetricMessage', '正在刪除全部業務的指定指標…', false);
+    if (storageMode === 'cumulative') {
+      const definition = getMetricDefinition(metricName);
+      if (!definition) return setMessage('bulkMetricMessage', '此累積指標尚未儲存任何資料。');
+      const { error } = await sb.from('cumulative_metric_values').delete().eq('metric_id', definition.id);
+      if (error) return setMessage('bulkMetricMessage', `刪除失敗：${error.message}`);
+      bulkMetricLoadedKey = '';
+      $('bulkMetricBody').innerHTML = '<tr><td colspan="3"><p class="empty-state">已清除全部人員的累積資料；指標仍會保留並適用於全員</p></td></tr>';
+      setMessage('bulkMetricMessage', `已清除全部人員的「${metricName}」累積資料。`, false);
+      return loadDashboardData();
+    }
     const { data, error: loadError } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate);
     if (loadError) return setMessage('bulkMetricMessage', `無法讀取既有資料：${loadError.message}`);
     const payloads = (data || []).filter(row => Object.prototype.hasOwnProperty.call(row.projects || {}, metricName)).map(row => {
@@ -655,7 +775,7 @@
     if (error) return setMessage('bulkMetricMessage', `刪除失敗：${error.message}`);
     bulkMetricLoadedKey = '';
     $('bulkMetricBody').innerHTML = '<tr><td colspan="3"><p class="empty-state">此指標已從當日全部業務資料中移除</p></td></tr>';
-    setMessage('bulkMetricMessage', `已刪除 ${payloads.length} 位業務人員的「${metricName}」，其他資料均已保留。`, false);
+    setMessage('bulkMetricMessage', `已清除 ${payloads.length} 位業務人員的「${metricName}」當日資料，指標仍適用於全員。`, false);
     await loadDashboardData();
   }
 
@@ -693,26 +813,34 @@
     const newName = window.prompt(`將自訂欄位「${oldName}」重新命名為：`, oldName)?.trim();
     if (!newName || newName === oldName) return;
     try {
+      const definition = getMetricDefinition(oldName);
       const rows = await fetchAllProjectRows();
       const affectedRows = rows.filter(row => Object.prototype.hasOwnProperty.call(row.projects || {}, oldName));
-      if (!affectedRows.length) return showToast(`找不到使用「${oldName}」的資料。`, 'error');
-      const hasCollision = rows.some(row => Object.prototype.hasOwnProperty.call(row.projects || {}, newName));
+      if (!affectedRows.length && !definition) return showToast(`找不到使用「${oldName}」的資料。`, 'error');
+      const hasCollision = rows.some(row => Object.prototype.hasOwnProperty.call(row.projects || {}, newName)) || metricDefinitions.some(item => item.name === newName && item.id !== definition?.id);
       if (hasCollision && !window.confirm(`已有部分資料使用「${newName}」。是否合併欄位？既有「${newName}」內容會優先保留。`)) return;
-      if (!window.confirm(`確定要將所有日期、所有業務的「${oldName}」重新命名為「${newName}」嗎？`)) return;
+      const scope = definition?.storage_mode === 'cumulative' ? '全部人員的累積指標' : '所有日期、所有業務的指標';
+      if (!window.confirm(`確定要將${scope}「${oldName}」重新命名為「${newName}」嗎？`)) return;
       const payloads = affectedRows.map(row => {
         const projects = { ...(row.projects || {}) };
         if (!hasText(projects[newName])) projects[newName] = projects[oldName];
         delete projects[oldName];
         return { view_date: row.view_date, salesperson_id: row.salesperson_id, projects, updated_by: currentUser.id };
       });
-      await upsertProjectRows(payloads);
+      if (payloads.length) await upsertProjectRows(payloads);
+      if (definition) {
+        const { error } = await sb.from('custom_metric_definitions').update({ name: newName }).eq('id', definition.id);
+        if (error) throw error;
+      }
       await loadDashboardData();
-      showToast(`已將 ${payloads.length} 筆資料的「${oldName}」重新命名為「${newName}」。`);
+      showToast(`已將「${oldName}」重新命名為「${newName}」。`);
     } catch (error) { showToast(`重新命名失敗：${error.message || error}`, 'error'); }
   }
 
   async function deleteCustomMetricColumn(metricName) {
-    if (!window.confirm(`確定要永久刪除所有日期、所有業務的「${metricName}」欄位嗎？其他績效欄位與紀錄會保留。`)) return;
+    const definition = getMetricDefinition(metricName);
+    const scope = definition?.storage_mode === 'cumulative' ? '全部人員的累積資料' : '所有日期、所有業務的歷史資料';
+    if (!window.confirm(`確定要永久刪除「${metricName}」及${scope}嗎？其他績效欄位與紀錄會保留。`)) return;
     try {
       const rows = await fetchAllProjectRows();
       const payloads = rows.filter(row => Object.prototype.hasOwnProperty.call(row.projects || {}, metricName)).map(row => {
@@ -720,10 +848,14 @@
         delete projects[metricName];
         return { view_date: row.view_date, salesperson_id: row.salesperson_id, projects, updated_by: currentUser.id };
       });
-      if (!payloads.length) return showToast(`找不到使用「${metricName}」的資料。`, 'error');
-      await upsertProjectRows(payloads);
+      if (!payloads.length && !definition) return showToast(`找不到使用「${metricName}」的資料。`, 'error');
+      if (payloads.length) await upsertProjectRows(payloads);
+      if (definition) {
+        const { error } = await sb.from('custom_metric_definitions').delete().eq('id', definition.id);
+        if (error) throw error;
+      }
       await loadDashboardData();
-      showToast(`已從 ${payloads.length} 筆資料中刪除「${metricName}」欄位。`);
+      showToast(`已刪除「${metricName}」與其全部指標資料。`);
     } catch (error) { showToast(`刪除欄位失敗：${error.message || error}`, 'error'); }
   }
 
@@ -738,6 +870,9 @@
     event.preventDefault(); if (!isManager()) return;
     const payload = { view_date: $('viewDate').value, salesperson_id: $('entrySalesperson').value, job_title: $('entryTitle').value.trim(), valid_calls: number($('validCalls').value), valid_meetings: number($('validMeetings').value), abay_progress: $('abayProgress').value.trim(), svip_progress: $('svipProgress').value.trim(), vip_progress: $('vipProgress').value.trim(), hvip_progress: $('hvipProgress').value.trim(), call_progress: $('callProgress').value.trim(), coverage_rate: $('coverageRate').value.trim(), projects: readProjects(), updated_by: currentUser.id };
     if (!payload.salesperson_id || payload.salesperson_id === '__new__') return setMessage('entryMessage', '請先選擇業務人員');
+    try {
+      await Promise.all(Object.keys(payload.projects).map(name => ensureMetricDefinition(name, 'daily')));
+    } catch (error) { return setMessage('entryMessage', `無法建立全員指標：${error.message || error}`); }
     const id = $('entryId').value;
     const response = id ? await sb.from('performance_entries').update(payload).eq('id', id) : await sb.from('performance_entries').insert({ ...payload, created_by: currentUser.id });
     if (response.error) return setMessage('entryMessage', response.error.message);
@@ -844,7 +979,7 @@
     const { data: existingRows, error: existingError } = await sb.from('performance_entries').select('salesperson_id, projects').eq('view_date', viewDate).in('salesperson_id', personIds);
     if (existingError) throw existingError;
     const existingByPerson = new Map((existingRows || []).map(row => [row.salesperson_id, row]));
-    const payloads = []; const skipped = [];
+    const payloads = []; const skipped = []; const dailyMetricNames = new Set();
 
     recognized.forEach(({ item, person }) => {
       const payload = { view_date: viewDate, salesperson_id: person.id, updated_by: currentUser.id };
@@ -858,6 +993,7 @@
             : importTarget.key === 'coverage_rate' ? formatCoverage(item.importValue) : String(item.importValue).trim();
         } else {
           payload.projects = { ...(existingByPerson.get(person.id)?.projects || {}), [importTarget.label]: String(item.importValue).trim() };
+          dailyMetricNames.add(importTarget.label);
         }
         hasMetric = true;
       } else if (importTarget.mode === 'auto') {
@@ -872,6 +1008,7 @@
       const customMetrics = item.customMetrics && typeof item.customMetrics === 'object' && !Array.isArray(item.customMetrics) ? item.customMetrics : {};
       if (importTarget.mode === 'auto' && Object.keys(customMetrics).length) {
         payload.projects = { ...(existingByPerson.get(person.id)?.projects || {}), ...customMetrics }; hasMetric = true;
+        Object.keys(customMetrics).forEach(name => dailyMetricNames.add(name));
       }
       if (!hasMetric) { skipped.push(person.name); return; }
       if (!existingByPerson.has(person.id)) payload.created_by = currentUser.id;
@@ -879,6 +1016,7 @@
     });
 
     if (!payloads.length) throw new Error('已辨識人員姓名，但沒有可更新的指標數據。');
+    await Promise.all([...dailyMetricNames].map(name => ensureMetricDefinition(name, 'daily')));
     const { error } = await sb.from('performance_entries').upsert(payloads, { onConflict: 'view_date,salesperson_id' });
     if (error) throw error;
     await loadDashboardData();
