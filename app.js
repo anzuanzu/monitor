@@ -369,11 +369,29 @@
 
   function renderRecords() {
     const visibleRecords = getVisibleRecords();
+    const tableRows = getTableRows(visibleRecords);
     const columns = getOrderedColumns();
     $('recordsHead').innerHTML = columns.map(renderColumnHeader).join('');
-    $('recordsBody').innerHTML = visibleRecords.length ? visibleRecords.map(row => `<tr>${columns.map(column => column.render(row)).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}"><p class="empty-state">沒有符合目前條件的紀錄</p></td></tr>`;
-    $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(visibleRecords.find(row => row.id === button.dataset.edit))));
+    $('recordsBody').innerHTML = tableRows.length ? tableRows.map(row => `<tr class="${row._placeholder ? 'placeholder-record' : ''}">${columns.map(column => column.render(row)).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}"><p class="empty-state">沒有符合目前條件的紀錄</p></td></tr>`;
+    if ($('fromDate').value === $('toDate').value && !$('recordSearch').value.trim()) $('recordCount').textContent = `${visibleRecords.length} 筆已儲存 · ${tableRows.length} 人`;
+    $('recordsBody').querySelectorAll('[data-edit]').forEach(button => button.addEventListener('click', () => openEntry(records.find(row => row.id === button.dataset.edit))));
+    $('recordsBody').querySelectorAll('[data-create-entry]').forEach(button => button.addEventListener('click', () => {
+      const person = salespeople.find(item => item.id === button.dataset.createEntry);
+      if (person) openEntry({ view_date: button.dataset.viewDate, salesperson_id: person.id, salespeople: person, job_title: person.job_title || '' });
+    }));
     $('recordsBody').querySelectorAll('[data-delete]').forEach(button => button.addEventListener('click', () => deleteEntry(button.dataset.delete)));
+  }
+
+  function getTableRows(visibleRecords) {
+    const singleDate = $('fromDate').value && $('fromDate').value === $('toDate').value;
+    if (!singleDate || $('recordSearch').value.trim()) return visibleRecords;
+    const selectedPersonId = $('salespersonFilter').value;
+    const activePeople = salespeople.filter(person => !selectedPersonId || person.id === selectedPersonId);
+    const existingByPerson = new Map(visibleRecords.map(row => [row.salesperson_id, row]));
+    return activePeople.map(person => existingByPerson.get(person.id) || {
+      id: '', view_date: $('fromDate').value, salesperson_id: person.id, job_title: person.job_title || '', salespeople: person,
+      valid_calls: '', valid_meetings: '', abay_progress: '', svip_progress: '', vip_progress: '', hvip_progress: '', call_progress: '', coverage_rate: '', projects: {}, _placeholder: true
+    });
   }
 
   function getColumnDefinitions() {
@@ -398,7 +416,7 @@
       const valueType = definition?.value_type || 'text';
       columns.push({ id: `custom:${name}`, label: cumulative ? `${name}（累積）` : name, metricName: name, widthClass: valueType === 'number' ? 'column-number' : 'column-note', custom: true, render: row => renderCustomMetricCell(row, name, cumulative, valueType, noteCell) });
     });
-    columns.push({ id: 'actions', label: '操作', widthClass: 'column-actions', managerOnly: true, render: row => `<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>` : ''}</td>` });
+    columns.push({ id: 'actions', label: '操作', widthClass: 'column-actions', managerOnly: true, render: row => `<td class="manager-only" aria-hidden="${!isManager()}">${isManager() ? (row._placeholder ? `<div class="row-actions"><button class="mini-btn" data-create-entry="${row.salesperson_id}" data-view-date="${row.view_date}">新增</button></div>` : `<div class="row-actions"><button class="mini-btn" data-edit="${row.id}">編輯</button><button class="mini-btn danger" data-delete="${row.id}">刪除</button></div>`) : ''}</td>` });
     return columns;
   }
 
@@ -505,7 +523,7 @@
   function renderCustomMetricCell(row, metricName, cumulative, valueType, noteCell) {
     const value = cumulative ? getCumulativeMetricValue(metricName, row.salesperson_id) : row.projects?.[metricName];
     if (valueType !== 'number' || !isManager()) return noteCell(value);
-    return `<td class="inline-metric-cell"><input class="inline-metric-input" type="number" step="any" inputmode="decimal" value="${escapeHtml(value ?? '')}" placeholder="—" data-saved-value="${escapeHtml(value ?? '')}" data-metric-name="${escapeHtml(metricName)}" data-record-id="${row.id}" data-salesperson-id="${row.salesperson_id}" data-storage-mode="${cumulative ? 'cumulative' : 'daily'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${escapeHtml(metricName)}"></td>`;
+    return `<td class="inline-metric-cell"><input class="inline-metric-input" type="number" step="any" inputmode="decimal" value="${escapeHtml(value ?? '')}" placeholder="—" data-saved-value="${escapeHtml(value ?? '')}" data-metric-name="${escapeHtml(metricName)}" data-record-id="${row.id || ''}" data-salesperson-id="${row.salesperson_id}" data-view-date="${row.view_date}" data-job-title="${escapeHtml(row.job_title || row.salespeople?.job_title || '')}" data-storage-mode="${cumulative ? 'cumulative' : 'daily'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${escapeHtml(metricName)}"></td>`;
   }
 
   function renderStandardNumberCell(row, metricKey, options = {}) {
@@ -513,7 +531,7 @@
     const value = options.percent ? String(rawValue).replace(/%\s*$/, '').trim() : rawValue;
     if (!isManager()) return `<td>${options.percent && hasText(rawValue) ? escapeHtml(formatCoverage(rawValue)) : number(rawValue)}</td>`;
     const suffix = options.percent ? '<span class="inline-metric-suffix">%</span>' : '';
-    return `<td class="inline-metric-cell${options.percent ? ' has-suffix' : ''}"><input class="inline-metric-input" type="number" min="0" step="any" inputmode="decimal" value="${escapeHtml(value)}" data-saved-value="${escapeHtml(value)}" data-standard-key="${metricKey}" data-record-id="${row.id}" data-percent="${options.percent ? 'true' : 'false'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${metricLabels[metricKey] || metricKey}">${suffix}</td>`;
+    return `<td class="inline-metric-cell${options.percent ? ' has-suffix' : ''}"><input class="inline-metric-input" type="number" min="0" step="any" inputmode="decimal" value="${escapeHtml(value)}" data-saved-value="${escapeHtml(value)}" data-standard-key="${metricKey}" data-record-id="${row.id || ''}" data-salesperson-id="${row.salesperson_id}" data-view-date="${row.view_date}" data-job-title="${escapeHtml(row.job_title || row.salespeople?.job_title || '')}" data-percent="${options.percent ? 'true' : 'false'}" aria-label="${escapeHtml(row.salespeople?.name || '業務人員')}的${metricLabels[metricKey] || metricKey}">${suffix}</td>`;
   }
 
   function refreshImportMetricOptions(selected = 'auto') {
@@ -707,14 +725,16 @@
     try {
       if (input.dataset.standardKey) {
         const row = records.find(item => item.id === input.dataset.recordId);
-        if (!row) throw new Error('找不到此筆紀錄。');
         const standardKey = input.dataset.standardKey;
         const savedValue = input.dataset.percent === 'true' ? formatCoverage(value) : Math.max(0, number(value));
-        const { error } = await sb.from('performance_entries').update({ [standardKey]: savedValue, updated_by: currentUser.id }).eq('id', row.id);
+        const response = row
+          ? await sb.from('performance_entries').update({ [standardKey]: savedValue, updated_by: currentUser.id }).eq('id', row.id)
+          : await sb.from('performance_entries').insert({ view_date: input.dataset.viewDate, salesperson_id: input.dataset.salespersonId, job_title: input.dataset.jobTitle || '', [standardKey]: savedValue, created_by: currentUser.id, updated_by: currentUser.id });
+        const { error } = response;
         if (error) throw error;
-        row[standardKey] = savedValue;
+        if (row) row[standardKey] = savedValue;
         input.dataset.savedValue = value;
-        renderDashboard();
+        await loadDashboardData();
         showToast(`「${metricLabels[standardKey]}」已儲存。`);
         return;
       }
@@ -738,16 +758,19 @@
         renderRecords();
       } else {
         const row = records.find(item => item.id === input.dataset.recordId);
-        if (!row) throw new Error('找不到此筆紀錄。');
-        const projects = { ...(row.projects || {}) };
+        if (!row && !value) return;
+        const projects = { ...(row?.projects || {}) };
         if (value) projects[metricName] = value;
         else delete projects[metricName];
-        const { error } = await sb.from('performance_entries').update({ projects, updated_by: currentUser.id }).eq('id', row.id);
+        const response = row
+          ? await sb.from('performance_entries').update({ projects, updated_by: currentUser.id }).eq('id', row.id)
+          : await sb.from('performance_entries').insert({ view_date: input.dataset.viewDate, salesperson_id: input.dataset.salespersonId, job_title: input.dataset.jobTitle || '', projects, created_by: currentUser.id, updated_by: currentUser.id });
+        const { error } = response;
         if (error) throw error;
-        row.projects = projects;
+        if (row) row.projects = projects;
       }
       input.dataset.savedValue = value;
-      renderProgressSummary();
+      await loadDashboardData();
       showToast(`「${metricName}」已儲存。`);
     } catch (error) {
       showToast(`儲存失敗：${error.message || error}`, 'error');

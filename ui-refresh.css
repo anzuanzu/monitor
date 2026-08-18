@@ -265,4 +265,5 @@ body.records-focus-active{overflow:hidden}
 .inline-metric-cell.has-suffix{position:relative;padding-right:29px!important}.inline-metric-cell.has-suffix .inline-metric-input{padding-right:4px}.inline-metric-suffix{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#75847f;font-weight:800}
 .inline-metric-input{width:100%;min-width:72px;padding:8px 9px;border:1px solid transparent;border-radius:8px;background:#f5f9f7;color:#18322b;font:800 15px/1.25 inherit;text-align:right;outline:none}
 .inline-metric-input:hover{border-color:#c5dad1;background:#fff}.inline-metric-input:focus{border-color:#16816f;background:#fff;box-shadow:0 0 0 3px rgba(22,129,111,.12)}.inline-metric-input:disabled{opacity:.58;cursor:wait}
+.placeholder-record{background:#fbfdfc}.placeholder-record .name-cell:after{content:'待輸入';display:inline-block;margin-left:7px;padding:2px 6px;border-radius:999px;background:#edf4f1;color:#668078;font-size:11px;font-weight:700;vertical-align:middle}
 @media(max-width:760px){.metric-creator-fields{grid-template-columns:1fr}}
