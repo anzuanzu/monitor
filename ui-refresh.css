@@ -114,6 +114,7 @@ input[type="search"]::-webkit-search-cancel-button{cursor:pointer}
 .custom-metric-head{background:#eaf5f1!important}
 .custom-metric-actions{opacity:.55}.custom-metric-head:hover .custom-metric-actions,.metric-header-btn:focus-visible{opacity:1}
 .metric-header-btn{width:29px;height:29px;border-radius:9px;box-shadow:0 2px 5px rgba(24,50,42,.06)}
+.metric-type-btn{width:auto;min-width:31px;padding:0 6px;font:800 11px/1 "DM Mono",monospace;color:#12776c}
 .note-cell{min-width:170px;max-width:280px}
 .mini-btn{min-height:30px;padding:5px 9px;border:1px solid #dbe5e0;border-radius:8px;background:#f5f8f6;font-weight:700}
 .mini-btn:hover{border-color:#bcd0c6;background:#eaf4ef}

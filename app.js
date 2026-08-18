@@ -440,7 +440,9 @@
   }
 
   function renderColumnHeader(column) {
-    const customActions = column.custom ? `<span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}"><button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(column.metricName)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(column.metricName)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(column.metricName)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(column.metricName)}">×</button></span>` : '';
+    const definition = column.custom ? getMetricDefinition(column.metricName) : null;
+    const typeButton = definition ? `<button class="metric-header-btn metric-type-btn" type="button" data-change-metric-type="${escapeHtml(column.metricName)}" title="切換文字／數字輸入" aria-label="切換 ${escapeHtml(column.metricName)} 的文字或數字輸入">${definition.value_type === 'number' ? '123' : 'T'}</button>` : '';
+    const customActions = column.custom ? `<span class="custom-metric-actions manager-only" aria-hidden="${!isManager()}">${typeButton}<button class="metric-header-btn" type="button" data-rename-metric="${escapeHtml(column.metricName)}" title="重新命名欄位" aria-label="重新命名 ${escapeHtml(column.metricName)}">✎</button><button class="metric-header-btn danger" type="button" data-delete-metric="${escapeHtml(column.metricName)}" title="刪除整個欄位" aria-label="刪除 ${escapeHtml(column.metricName)}">×</button></span>` : '';
     return `<th class="${column.custom ? 'custom-metric-head ' : ''}${column.managerOnly ? 'manager-only ' : ''}${column.widthClass || ''} reorderable-column" data-column-id="${escapeHtml(column.id)}" draggable="true" title="拖曳可調整欄位順序" aria-hidden="${column.managerOnly ? String(!isManager()) : 'false'}"><div class="column-header-content"><span class="column-drag-handle" aria-hidden="true">⋮⋮</span><span>${escapeHtml(column.label)}</span>${customActions}</div></th>`;
   }
 
@@ -953,13 +955,30 @@
 
   async function handleCustomMetricHeaderAction(event) {
     if (!isManager()) return;
+    const typeButton = event.target.closest('[data-change-metric-type]');
     const renameButton = event.target.closest('[data-rename-metric]');
     const deleteButton = event.target.closest('[data-delete-metric]');
-    if (!renameButton && !deleteButton) return;
-    const oldName = String((renameButton || deleteButton).dataset.renameMetric || (renameButton || deleteButton).dataset.deleteMetric || '').trim();
+    if (!typeButton && !renameButton && !deleteButton) return;
+    const oldName = String((typeButton || renameButton || deleteButton).dataset.changeMetricType || (typeButton || renameButton || deleteButton).dataset.renameMetric || (typeButton || renameButton || deleteButton).dataset.deleteMetric || '').trim();
     if (!oldName) return;
-    if (renameButton) await renameCustomMetricColumn(oldName);
+    if (typeButton) await changeCustomMetricValueType(oldName);
+    else if (renameButton) await renameCustomMetricColumn(oldName);
     else await deleteCustomMetricColumn(oldName);
+  }
+
+  async function changeCustomMetricValueType(metricName) {
+    const definition = getMetricDefinition(metricName);
+    if (!definition) return showToast('找不到欄位設定。', 'error');
+    const nextType = definition.value_type === 'number' ? 'text' : 'number';
+    const nextLabel = nextType === 'text' ? '文字（可直接輸入內容）' : '數字（可直接輸入數值）';
+    if (!window.confirm(`要把「${metricName}」切換為${nextLabel}嗎？既有資料不會刪除。`)) return;
+    try {
+      const { error } = await sb.from('custom_metric_definitions').update({ value_type: nextType }).eq('id', definition.id);
+      if (error) throw error;
+      definition.value_type = nextType;
+      await loadDashboardData();
+      showToast(`「${metricName}」已切換為${nextLabel}。`);
+    } catch (error) { showToast(`切換欄位類型失敗：${error.message || error}`, 'error'); }
   }
 
   async function renameCustomMetricColumn(oldName) {
